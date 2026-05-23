@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Review Lens</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #17171f;
+      --surface2: #1e1e2a;
+      --border: #2a2a3a;
+      --text: #f0f0f8;
+      --text-muted: #8888aa;
+      --accent: #6c63ff;
+      --accent-glow: rgba(108, 99, 255, 0.3);
+      --pro: #34d399;
+      --con: #f87171;
+      --neutral: #fbbf24;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 380px;
+      min-height: 200px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #17171f 0%, #1a1424 100%);
+    }
+
+    .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 0 16px var(--accent-glow);
+      flex-shrink: 0;
+    }
+
+    .header-text h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+
+    .header-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    .header-actions {
+      margin-left: auto;
+    }
+
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 8px;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+
+    .icon-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── Screens ── */
+    .screen { padding: 20px; }
+
+    /* Setup */
+    .setup-icon {
+      font-size: 40px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .setup-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 17px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .setup-desc {
+      color: var(--text-muted);
+      text-align: center;
+      font-size: 12.5px;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .setup-desc a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 12px;
+    }
+
+    input:focus { border-color: var(--accent); }
+    input.error { border-color: var(--con); }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.03em;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 12px;
+    }
+
+    input[type="number"]:focus {
+      border-color: var(--accent);
+    }
+
+    /* ── Scope button grid ── */
+    .scope-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .scope-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 10px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.15s;
+      text-align: center;
+      outline: none;
+    }
+
+    .scope-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    .scope-btn.active {
+      background: rgba(108, 99, 255, 0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .scope-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .scope-sub {
+      font-size: 10px;
+      opacity: 0.65;
+      font-weight: 400;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      color: white;
+      box-shadow: 0 4px 15px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--accent-glow);
+    }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      margin-top: 8px;
+    }
+
+    /* Loading */
+    .loading-wrap {
+      text-align: center;
+      padding: 32px 20px;
+    }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .loading-sub {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    /* Result */
+    .result-screen { padding: 0; }
+
+    .place-header {
+      padding: 16px 20px 14px;
+      background: linear-gradient(135deg, #17171f, #1a1424);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .place-name {
+      font-family: 'Syne', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .place-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .stars {
+      color: var(--neutral);
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    .rating-val {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .review-count {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .sentiment-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 20px;
+      margin-top: 6px;
+    }
+
+    .sentiment-positive { background: rgba(52, 211, 153, 0.15); color: var(--pro); }
+    .sentiment-negative { background: rgba(248, 113, 113, 0.15); color: var(--con); }
+    .sentiment-neutral  { background: rgba(251, 191, 36, 0.15); color: var(--neutral); }
+    .sentiment-mixed    { background: rgba(108, 99, 255, 0.15); color: #a78bfa; }
+
+    .result-body {
+      padding: 16px 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .result-body::-webkit-scrollbar { width: 4px; }
+    .result-body::-webkit-scrollbar-track { background: transparent; }
+    .result-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .summary-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.65;
+      margin-bottom: 16px;
+      font-style: italic;
+      border-left: 3px solid var(--accent);
+    }
+
+    .section-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .section-title.pros-title { color: var(--pro); }
+    .section-title.cons-title { color: var(--con); }
+    .section-title.themes-title { color: var(--text-muted); }
+
+    ul {
+      list-style: none;
+      margin-bottom: 16px;
+    }
+
+    ul li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 7px 10px;
+      margin-bottom: 4px;
+      border-radius: var(--radius-sm);
+      font-size: 12.5px;
+      line-height: 1.5;
+      background: var(--surface);
+    }
+
+    .pros-list li { border-left: 2px solid var(--pro); }
+    .cons-list li { border-left: 2px solid var(--con); }
+
+    .bullet { font-size: 12px; margin-top: 1px; flex-shrink: 0; font-weight: 700; }
+    .pro-bullet { color: var(--pro); }
+    .con-bullet { color: var(--con); }
+
+    .themes-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .theme-chip {
+      background: rgba(108, 99, 255, 0.12);
+      border: 1px solid rgba(108, 99, 255, 0.3);
+      color: #a78bfa;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+
+    /* Error / no-reviews */
+    .center-screen {
+      text-align: center;
+      padding: 32px 24px;
+    }
+
+    .error-icon { font-size: 36px; margin-bottom: 12px; }
+
+    .error-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .error-msg {
+      color: var(--text-muted);
+      font-size: 12.5px;
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    .footer {
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .footer-actions { display: flex; gap: 8px; }
+
+    .analyzed-at {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── Info screen ── */
+    .info-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .cache-note {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">🔍</div>
+    <div class="header-text">
+      <h1>Review Lens</h1>
+      <p>AI-powered review analysis</p>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" data-action="open-settings" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- Info screen -->
+  <div class="screen" data-screen="info" hidden>
+    <div class="place-header">
+      <div class="place-name" data-field="info-place-name">Loading…</div>
+      <div class="place-meta">
+        <span class="stars" data-field="info-stars"></span>
+        <span class="rating-val" data-field="info-rating"></span>
+        <span class="review-count" data-field="info-review-count"></span>
+      </div>
+    </div>
+    <div class="info-body">
+      <button class="btn btn-primary" data-action="analyze">Analyze Reviews</button>
+      <button class="btn btn-secondary" data-action="view-cache" id="view-cache-btn" hidden>View Last Analysis</button>
+      <p class="cache-note" id="cache-note"></p>
+    </div>
+  </div>
+
+  <!-- Settings screen -->
+  <div class="screen" data-screen="settings" hidden>
+    <div class="setup-icon">⚙️</div>
+    <div class="setup-title">Review selection</div>
+    <p class="setup-desc">Choose how many reviews to summarize and whether to focus on recent or timeline-based comments.</p>
+
+    <label>Review scope</label>
+    <div class="scope-grid" id="review-mode-group">
+      <button class="scope-btn" data-value="all">
+        <span class="scope-label">All</span>
+        <span class="scope-sub">all time</span>
+      </button>
+      <button class="scope-btn" data-value="recent">
+        <span class="scope-label">Recent</span>
+        <span class="scope-sub">by count</span>
+      </button>
+      <button class="scope-btn" data-value="1m">
+        <span class="scope-label">1 Month</span>
+        <span class="scope-sub">30 days</span>
+      </button>
+      <button class="scope-btn" data-value="3m">
+        <span class="scope-label">3 Months</span>
+        <span class="scope-sub">90 days</span>
+      </button>
+      <button class="scope-btn" data-value="6m">
+        <span class="scope-label">6 Months</span>
+        <span class="scope-sub">180 days</span>
+      </button>
+      <button class="scope-btn" data-value="1y">
+        <span class="scope-label">1 Year</span>
+        <span class="scope-sub">365 days</span>
+      </button>
+    </div>
+
+    <div id="count-field-wrapper">
+      <label for="review-count-input">Maximum reviews to collect</label>
+      <input type="number" id="review-count-input" min="10" max="2000" step="100" value="1000" />
+    </div>
+
+    <button class="btn btn-primary" data-action="save-settings">Save & Analyze</button>
+    <button class="btn btn-secondary" data-action="cancel-settings">Cancel</button>
+  </div>
+
+  <!-- Loading screen -->
+  <div class="screen loading-wrap" data-screen="loading" hidden>
+    <div class="spinner"></div>
+    <div class="loading-text">Analyzing reviews…</div>
+    <div class="loading-sub">Scrolling to collect all reviews, then summarizing with AI</div>
+  </div>
+
+  <!-- Result screen -->
+  <div class="screen result-screen" data-screen="result" hidden>
+    <div class="place-header">
+      <div class="place-name" data-field="place-name"></div>
+      <div class="place-meta">
+        <span class="stars" data-field="stars"></span>
+        <span class="rating-val" data-field="rating"></span>
+        <span class="review-count" data-field="review-count"></span>
+      </div>
+      <div data-field="sentiment" class="sentiment-badge"></div>
+    </div>
+
+    <div class="result-body">
+      <div class="summary-box" data-field="summary"></div>
+
+      <div class="section-title pros-title">✓ What people love</div>
+      <ul class="pros-list" data-field="pros"></ul>
+
+      <div class="section-title cons-title">✗ Common complaints</div>
+      <ul class="cons-list" data-field="cons"></ul>
+
+      <div class="section-title themes-title">◆ Top themes</div>
+      <div class="themes-row" data-field="themes"></div>
+    </div>
+
+    <div class="footer">
+      <span class="analyzed-at" id="analyzed-at"></span>
+      <div class="footer-actions">
+        <button class="icon-btn" data-action="open-settings">⚙ Settings</button>
+        <button class="icon-btn" data-action="re-analyze">↺ Re-analyze</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- No reviews screen -->
+  <div class="screen center-screen" data-screen="no-reviews" hidden>
+    <div class="error-icon">📭</div>
+    <div class="error-title">No reviews found</div>
+    <p class="error-msg">
+      Open a business page on <strong>Google Maps</strong> or a <strong>Google Search</strong> knowledge panel, then click the reviews section to load them.
+    </p>
+    <button class="btn btn-primary" data-action="retry">Try Again</button>
+  </div>
+
+  <!-- Error screen -->
+  <div class="screen center-screen" data-screen="error" hidden>
+    <div class="error-icon">⚠️</div>
+    <div class="error-title">Something went wrong</div>
+    <p class="error-msg" data-field="error-message"></p>
+    <button class="btn btn-primary" data-action="retry">Retry</button>
+    <button class="btn btn-secondary" data-action="open-settings">Settings</button>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

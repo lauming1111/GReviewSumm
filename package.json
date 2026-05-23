@@ -1,0 +1,13 @@
+{
+  "name": "review-summarizer",
+  "version": "1.0.0",
+  "description": "Google Review Summarizer Chrome Extension",
+  "scripts": {
+    "build": "tsc && node build.js",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/chrome": "^0.0.260"
+  }
+}
