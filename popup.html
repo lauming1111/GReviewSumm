@@ -638,6 +638,24 @@
       color: var(--text-muted);
     }
 
+    .place-category {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .place-info-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .info-icon { flex-shrink: 0; font-size: 11px; margin-top: 1px; }
+    .info-text  { line-height: 1.4; }
+
     /* ── Info screen ── */
     .info-body {
       padding: 20px;
@@ -682,10 +700,17 @@
   <div class="screen" data-screen="info" hidden>
     <div class="place-header">
       <div class="place-name" data-field="info-place-name">Loading…</div>
+      <div class="place-category" data-field="info-category" hidden></div>
       <div class="place-meta">
         <span class="stars" data-field="info-stars"></span>
         <span class="rating-val" data-field="info-rating"></span>
         <span class="review-count" data-field="info-review-count"></span>
+      </div>
+      <div class="place-info-row" data-field="info-address" hidden>
+        <span class="info-icon">📍</span><span class="info-text"></span>
+      </div>
+      <div class="place-info-row" data-field="info-phone" hidden>
+        <span class="info-icon">📞</span><span class="info-text"></span>
       </div>
     </div>
     <div class="info-body">

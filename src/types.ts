@@ -23,7 +23,7 @@ export interface ReviewSettings {
 
 export type MessageType =
   | { type: 'GET_BASIC_INFO' }
-  | { type: 'BASIC_INFO'; payload: { placeName: string; googleRating?: number; googleReviewCount?: number } }
+  | { type: 'BASIC_INFO'; payload: { placeName: string; googleRating?: number; googleReviewCount?: number; category?: string; address?: string; phone?: string } }
   | { type: 'GET_REVIEWS'; maxReviews?: number }
   | { type: 'REVIEWS_DATA'; payload: { reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number } }
   | { type: 'SUMMARIZE'; payload: { reviews: Review[]; placeName: string; settings: ReviewSettings; googleRating?: number; googleReviewCount?: number } }

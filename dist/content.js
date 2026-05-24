@@ -115,10 +115,38 @@ function scrapeBasicInfo() {
     const placeNameEl = document.querySelector('h1.DUwDvf') ??
         document.querySelector('h1[class*="fontHeadlineLarge"]') ??
         document.querySelector('h1');
+    // Category — button with category jsaction, or first short text block after h1
+    let category;
+    const catEl = document.querySelector('button[jsaction*="category"]') ??
+        document.querySelector('[class*="DkEaL"]');
+    if (catEl?.textContent?.trim()) {
+        category = catEl.textContent.trim();
+    }
+    // Address — aria-label is most reliable; strip leading "Address: " prefix
+    let address;
+    const addressBtn = document.querySelector('[data-item-id="address"]');
+    if (addressBtn) {
+        const label = addressBtn.getAttribute('aria-label');
+        address = label
+            ? label.replace(/^address:\s*/i, '').trim()
+            : addressBtn.textContent?.trim();
+    }
+    // Phone — data-item-id starts with "phone:tel:"
+    let phone;
+    const phoneBtn = document.querySelector('[data-item-id^="phone:tel:"]');
+    if (phoneBtn) {
+        const label = phoneBtn.getAttribute('aria-label');
+        phone = label
+            ? label.replace(/^phone:\s*/i, '').trim()
+            : phoneBtn.textContent?.trim();
+    }
     return {
         placeName: placeNameEl?.textContent?.trim() ?? document.title ?? 'This Place',
         ...(googleRating !== null && { googleRating }),
         ...(googleReviewCount !== null && { googleReviewCount }),
+        ...(category && { category }),
+        ...(address && { address }),
+        ...(phone && { phone }),
     };
 }
 // ─── Incremental scroll + scrape ──────────────────────────────────────────────

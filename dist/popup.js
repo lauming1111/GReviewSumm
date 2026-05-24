@@ -375,7 +375,7 @@ async function showInfoScreen() {
     try {
         const response = await sendToTab(currentTabId, { type: 'GET_BASIC_INFO' });
         if (response.type === 'BASIC_INFO') {
-            const { placeName, googleRating, googleReviewCount } = response.payload;
+            const { placeName, googleRating, googleReviewCount, category, address, phone } = response.payload;
             const nameEl = $('[data-field="info-place-name"]');
             const starsEl = $('[data-field="info-stars"]');
             const ratingEl = $('[data-field="info-rating"]');
@@ -388,6 +388,25 @@ async function showInfoScreen() {
                 ratingEl.textContent = googleRating ? `${googleRating} / 5` : '';
             if (countEl)
                 countEl.textContent = googleReviewCount ? `${googleReviewCount.toLocaleString()} reviews` : '';
+            const catEl = $('[data-field="info-category"]');
+            if (catEl) {
+                catEl.textContent = category ?? '';
+                catEl.hidden = !category;
+            }
+            const addrRow = $('[data-field="info-address"]');
+            if (addrRow) {
+                const t = addrRow.querySelector('.info-text');
+                if (t)
+                    t.textContent = address ?? '';
+                addrRow.hidden = !address;
+            }
+            const phoneRow = $('[data-field="info-phone"]');
+            if (phoneRow) {
+                const t = phoneRow.querySelector('.info-text');
+                if (t)
+                    t.textContent = phone ?? '';
+                phoneRow.hidden = !phone;
+            }
         }
     }
     catch {
