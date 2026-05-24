@@ -2,15 +2,21 @@ const REVIEW_CARD_SELECTOR = '[data-review-id]';
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+// Only return top-level review cards — skip elements nested inside another [data-review-id].
+// Google Maps sometimes puts child elements with the same attribute inside a card,
+// which causes raw querySelectorAll to over-count.
+function getReviewCards() {
+    return Array.from(document.querySelectorAll(REVIEW_CARD_SELECTOR)).filter((el) => !el.parentElement?.closest(REVIEW_CARD_SELECTOR));
+}
 // Wait until new review cards appear, or timeout
 function waitForNewReviews(previousCount, timeoutMs) {
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
             observer.disconnect();
-            resolve(document.querySelectorAll(REVIEW_CARD_SELECTOR).length);
+            resolve(getReviewCards().length);
         }, timeoutMs);
         const observer = new MutationObserver(() => {
-            const current = document.querySelectorAll(REVIEW_CARD_SELECTOR).length;
+            const current = getReviewCards().length;
             if (current > previousCount) {
                 clearTimeout(timer);
                 observer.disconnect();
@@ -22,7 +28,7 @@ function waitForNewReviews(previousCount, timeoutMs) {
 }
 // If reviews tab isn't open yet, find and click it
 async function ensureReviewsTabOpen() {
-    if (document.querySelectorAll(REVIEW_CARD_SELECTOR).length > 0)
+    if (getReviewCards().length > 0)
         return;
     const allButtons = Array.from(document.querySelectorAll('button, [role="tab"]'));
     const reviewsBtn = allButtons.find((btn) => {
@@ -56,14 +62,14 @@ function clickMoreReviewsButton() {
 // When scrolling stalls, try clicking a "More reviews" button before giving up.
 async function scrollToLoadReviews(maxReviews) {
     await ensureReviewsTabOpen();
-    if (document.querySelectorAll(REVIEW_CARD_SELECTOR).length === 0) {
+    if (getReviewCards().length === 0) {
         console.log('[Review Lens] No review cards found after tab open attempt');
         return;
     }
     let stableRounds = 0;
     const MAX_STABLE = 3;
     while (stableRounds < MAX_STABLE) {
-        const cards = document.querySelectorAll(REVIEW_CARD_SELECTOR);
+        const cards = getReviewCards();
         if (cards.length >= maxReviews)
             break;
         const countBefore = cards.length;
@@ -87,7 +93,7 @@ async function scrollToLoadReviews(maxReviews) {
             stableRounds = 0;
         }
     }
-    console.log(`[Review Lens] Done: ${document.querySelectorAll(REVIEW_CARD_SELECTOR).length} reviews collected`);
+    console.log(`[Review Lens] Done: ${getReviewCards().length} reviews collected`);
 }
 // ─── Scraping ─────────────────────────────────────────────────────────────────
 // Scrape Google's own aggregate rating and total review count from the page header.
@@ -119,7 +125,7 @@ function extractStarRating(el) {
 function scrapeMapReviews() {
     const reviews = [];
     const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
-    document.querySelectorAll(REVIEW_CARD_SELECTOR).forEach((card) => {
+    getReviewCards().forEach((card) => {
         const textEl = card.querySelector('.wiI7pd') ??
             card.querySelector('[class*="review-full-text"]') ??
             card.querySelector('span[jslog]') ??

@@ -6,16 +6,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Only return top-level review cards — skip elements nested inside another [data-review-id].
+// Google Maps sometimes puts child elements with the same attribute inside a card,
+// which causes raw querySelectorAll to over-count.
+function getReviewCards(): Element[] {
+  return Array.from(document.querySelectorAll(REVIEW_CARD_SELECTOR)).filter(
+    (el) => !el.parentElement?.closest(REVIEW_CARD_SELECTOR)
+  );
+}
+
 // Wait until new review cards appear, or timeout
 function waitForNewReviews(previousCount: number, timeoutMs: number): Promise<number> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       observer.disconnect();
-      resolve(document.querySelectorAll(REVIEW_CARD_SELECTOR).length);
+      resolve(getReviewCards().length);
     }, timeoutMs);
 
     const observer = new MutationObserver(() => {
-      const current = document.querySelectorAll(REVIEW_CARD_SELECTOR).length;
+      const current = getReviewCards().length;
       if (current > previousCount) {
         clearTimeout(timer);
         observer.disconnect();
@@ -29,7 +38,7 @@ function waitForNewReviews(previousCount: number, timeoutMs: number): Promise<nu
 
 // If reviews tab isn't open yet, find and click it
 async function ensureReviewsTabOpen(): Promise<void> {
-  if (document.querySelectorAll(REVIEW_CARD_SELECTOR).length > 0) return;
+  if (getReviewCards().length > 0) return;
 
   const allButtons = Array.from(document.querySelectorAll<HTMLElement>('button, [role="tab"]'));
   const reviewsBtn = allButtons.find((btn) => {
@@ -68,7 +77,7 @@ function clickMoreReviewsButton(): boolean {
 async function scrollToLoadReviews(maxReviews: number): Promise<void> {
   await ensureReviewsTabOpen();
 
-  if (document.querySelectorAll(REVIEW_CARD_SELECTOR).length === 0) {
+  if (getReviewCards().length === 0) {
     console.log('[Review Lens] No review cards found after tab open attempt');
     return;
   }
@@ -77,7 +86,7 @@ async function scrollToLoadReviews(maxReviews: number): Promise<void> {
   const MAX_STABLE = 3;
 
   while (stableRounds < MAX_STABLE) {
-    const cards = document.querySelectorAll(REVIEW_CARD_SELECTOR);
+    const cards = getReviewCards();
     if (cards.length >= maxReviews) break;
 
     const countBefore = cards.length;
@@ -103,9 +112,7 @@ async function scrollToLoadReviews(maxReviews: number): Promise<void> {
     }
   }
 
-  console.log(
-    `[Review Lens] Done: ${document.querySelectorAll(REVIEW_CARD_SELECTOR).length} reviews collected`
-  );
+  console.log(`[Review Lens] Done: ${getReviewCards().length} reviews collected`);
 }
 
 // ─── Scraping ─────────────────────────────────────────────────────────────────
@@ -139,7 +146,7 @@ function scrapeMapReviews(): { reviews: Review[]; placeName: string; googleRatin
   const reviews: Review[] = [];
   const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
 
-  document.querySelectorAll(REVIEW_CARD_SELECTOR).forEach((card) => {
+  getReviewCards().forEach((card) => {
     const textEl =
       card.querySelector('.wiI7pd') ??
       card.querySelector('[class*="review-full-text"]') ??

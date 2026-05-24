@@ -6,7 +6,7 @@ function $(selector: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(selector);
 }
 
-function setScreen(name: 'info' | 'settings' | 'loading' | 'result' | 'error' | 'no-reviews'): void {
+function setScreen(name: 'info' | 'history' | 'settings' | 'loading' | 'result' | 'error' | 'no-reviews'): void {
   document.querySelectorAll<HTMLElement>('.screen').forEach((el) => {
     el.hidden = el.dataset.screen !== name;
   });
@@ -38,12 +38,18 @@ async function saveSettings(settings: ReviewSettings): Promise<void> {
   });
 }
 
+function updateCountFieldVisibility(mode: ReviewSettings['reviewMode']): void {
+  const wrapper = document.getElementById('count-field-wrapper');
+  if (wrapper) wrapper.hidden = mode === 'all';
+}
+
 function applySettingsToUI(settings: ReviewSettings): void {
   document.querySelectorAll<HTMLElement>('.scope-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
   });
   const countInput = document.querySelector<HTMLInputElement>('#review-count-input');
   if (countInput) countInput.value = String(settings.reviewCount);
+  updateCountFieldVisibility(settings.reviewMode);
 }
 
 function readSettingsFromUI(): ReviewSettings {
@@ -102,6 +108,76 @@ function timeAgo(timestamp: number): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+async function getAllCacheEntries(): Promise<Array<{ key: string; entry: CacheEntry }>> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['reviewLensCache'], (data) => {
+      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+      const entries = Object.entries(cache)
+        .map(([key, entry]) => ({ key, entry }))
+        .sort((a, b) => b.entry.timestamp - a.entry.timestamp);
+      resolve(entries);
+    });
+  });
+}
+
+async function deleteHistoryEntry(key: string): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['reviewLensCache'], (data) => {
+      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+      delete cache[key];
+      chrome.storage.local.set({ reviewLensCache: cache }, resolve);
+    });
+  });
+}
+
+async function clearAllHistory(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['reviewLensCache'], resolve);
+  });
+}
+
+async function showHistory(): Promise<void> {
+  const entries = await getAllCacheEntries();
+  const list = document.getElementById('history-list');
+  if (!list) return;
+
+  if (entries.length === 0) {
+    list.innerHTML = '<p class="history-empty">No analyzed places yet.</p>';
+    setScreen('history');
+    return;
+  }
+
+  const sentimentColors: Record<SummaryResult['overallSentiment'], string> = {
+    positive: 'sentiment-positive',
+    negative: 'sentiment-negative',
+    neutral:  'sentiment-neutral',
+    mixed:    'sentiment-mixed',
+  };
+
+  list.innerHTML = entries.map(({ key, entry }) => {
+    const r = entry.result;
+    const stars = '★'.repeat(Math.floor(r.averageRating)) + (r.averageRating % 1 >= 0.5 ? '½' : '');
+    const cls = sentimentColors[r.overallSentiment] ?? '';
+    return `
+      <div class="history-item ${cls}" data-key="${encodeURIComponent(key)}">
+        <div style="min-width:0">
+          <div class="history-item-name">${r.placeName}</div>
+          <div class="history-item-meta">
+            <span class="history-stars">${stars}</span>
+            <span>${r.averageRating}</span>
+            <span>·</span>
+            <span>${r.totalReviews.toLocaleString()} reviews</span>
+            <span>·</span>
+            <span>${timeAgo(entry.timestamp)}</span>
+          </div>
+        </div>
+        <button class="history-delete" data-key="${encodeURIComponent(key)}" title="Remove">✕</button>
+      </div>`;
+  }).join('');
+
+  setScreen('history');
 }
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
@@ -218,6 +294,29 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
   setScreen('result');
 }
 
+// ─── Loading steps ────────────────────────────────────────────────────────────
+
+function setLoadingStep(step: 1 | 2, detail?: string): void {
+  const s1 = document.getElementById('step-1');
+  const s2 = document.getElementById('step-2');
+  const d1 = document.getElementById('step-1-detail');
+  const d2 = document.getElementById('step-2-detail');
+
+  if (step === 1) {
+    s1?.classList.replace('step-pending', 'step-active') || s1?.classList.add('step-active');
+    s2?.classList.add('step-pending');
+    if (d1) d1.textContent = detail ?? 'Scrolling through reviews…';
+  } else {
+    s1?.classList.remove('step-active');
+    s1?.classList.add('step-done');
+    const dot1 = s1?.querySelector('.step-dot');
+    if (dot1) dot1.textContent = '✓';
+    if (d1 && detail) d1.textContent = detail;
+    s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
+    if (d2) d2.textContent = 'Summarizing with AI…';
+  }
+}
+
 // ─── Info screen ──────────────────────────────────────────────────────────────
 
 let currentTabUrl = '';
@@ -253,17 +352,15 @@ async function showInfoScreen(): Promise<void> {
     if (nameEl) nameEl.textContent = 'Open a business on Google Maps';
   }
 
-  // Check cache
+  // If this place has been analyzed before, show the result immediately
   const cached = await getCachedResult(currentTabUrl);
-  const viewCacheBtn = document.getElementById('view-cache-btn') as HTMLButtonElement | null;
-  const cacheNote = document.getElementById('cache-note');
   if (cached) {
-    if (viewCacheBtn) viewCacheBtn.hidden = false;
-    if (cacheNote) cacheNote.textContent = `Last analyzed ${timeAgo(cached.timestamp)}`;
-  } else {
-    if (viewCacheBtn) viewCacheBtn.hidden = true;
-    if (cacheNote) cacheNote.textContent = '';
+    renderResult(cached.result, cached.timestamp);
+    return;
   }
+
+  const viewCacheBtn = document.getElementById('view-cache-btn') as HTMLButtonElement | null;
+  if (viewCacheBtn) viewCacheBtn.hidden = true;
 
   setScreen('info');
 }
@@ -272,6 +369,7 @@ async function showInfoScreen(): Promise<void> {
 
 async function runAnalyze(): Promise<void> {
   setScreen('loading');
+  setLoadingStep(1);
 
   const settings = await getSettings();
 
@@ -288,7 +386,8 @@ async function runAnalyze(): Promise<void> {
 
   let reviewsResponse: MessageType;
   try {
-    reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews: settings.reviewCount } satisfies MessageType);
+    const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
+    reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews } satisfies MessageType);
   } catch (err) {
     console.error('[Review Lens] Message error:', err);
     showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
@@ -301,6 +400,7 @@ async function runAnalyze(): Promise<void> {
   if (reviewsResponse.type === 'REVIEWS_DATA') {
     const { reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload;
     console.log(`[Review Lens] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
+    setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
 
     let summaryResponse: MessageType;
     try {
@@ -341,16 +441,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.scope-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
+      updateCountFieldVisibility(btn.dataset.value as ReviewSettings['reviewMode']);
     });
+  });
+
+  // History screen
+  $('[data-action="open-history"]')?.addEventListener('click', () => showHistory());
+  $('[data-action="back-from-history"]')?.addEventListener('click', () => showInfoScreen());
+
+  document.getElementById('clear-history-btn')?.addEventListener('click', async () => {
+    await clearAllHistory();
+    showHistory();
+  });
+
+  document.getElementById('history-list')?.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+
+    const deleteBtn = target.closest<HTMLElement>('.history-delete');
+    if (deleteBtn) {
+      e.stopPropagation();
+      await deleteHistoryEntry(decodeURIComponent(deleteBtn.dataset.key ?? ''));
+      showHistory();
+      return;
+    }
+
+    const item = target.closest<HTMLElement>('.history-item');
+    if (item) {
+      const key = decodeURIComponent(item.dataset.key ?? '');
+      const entries = await getAllCacheEntries();
+      const found = entries.find((e) => e.key === key);
+      if (found) renderResult(found.entry.result, found.entry.timestamp);
+    }
   });
 
   // Info screen actions
   $('[data-action="analyze"]')?.addEventListener('click', () => runAnalyze());
-
-  $('[data-action="view-cache"]')?.addEventListener('click', async () => {
-    const cached = await getCachedResult(currentTabUrl);
-    if (cached) renderResult(cached.result, cached.timestamp);
-  });
 
   // Result screen actions
   $('[data-action="re-analyze"]')?.addEventListener('click', () => runAnalyze());

@@ -23,6 +23,11 @@ async function saveSettings(settings) {
         chrome.storage.local.set({ reviewLensSettings: settings }, resolve);
     });
 }
+function updateCountFieldVisibility(mode) {
+    const wrapper = document.getElementById('count-field-wrapper');
+    if (wrapper)
+        wrapper.hidden = mode === 'all';
+}
 function applySettingsToUI(settings) {
     document.querySelectorAll('.scope-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
@@ -30,6 +35,7 @@ function applySettingsToUI(settings) {
     const countInput = document.querySelector('#review-count-input');
     if (countInput)
         countInput.value = String(settings.reviewCount);
+    updateCountFieldVisibility(settings.reviewMode);
 }
 function readSettingsFromUI() {
     const activeBtn = document.querySelector('.scope-btn.active');
@@ -82,6 +88,69 @@ function timeAgo(timestamp) {
     if (hours < 24)
         return `${hours}h ago`;
     return `${Math.floor(hours / 24)}d ago`;
+}
+async function getAllCacheEntries() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['reviewLensCache'], (data) => {
+            const cache = (data.reviewLensCache ?? {});
+            const entries = Object.entries(cache)
+                .map(([key, entry]) => ({ key, entry }))
+                .sort((a, b) => b.entry.timestamp - a.entry.timestamp);
+            resolve(entries);
+        });
+    });
+}
+async function deleteHistoryEntry(key) {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['reviewLensCache'], (data) => {
+            const cache = (data.reviewLensCache ?? {});
+            delete cache[key];
+            chrome.storage.local.set({ reviewLensCache: cache }, resolve);
+        });
+    });
+}
+async function clearAllHistory() {
+    return new Promise((resolve) => {
+        chrome.storage.local.remove(['reviewLensCache'], resolve);
+    });
+}
+async function showHistory() {
+    const entries = await getAllCacheEntries();
+    const list = document.getElementById('history-list');
+    if (!list)
+        return;
+    if (entries.length === 0) {
+        list.innerHTML = '<p class="history-empty">No analyzed places yet.</p>';
+        setScreen('history');
+        return;
+    }
+    const sentimentColors = {
+        positive: 'sentiment-positive',
+        negative: 'sentiment-negative',
+        neutral: 'sentiment-neutral',
+        mixed: 'sentiment-mixed',
+    };
+    list.innerHTML = entries.map(({ key, entry }) => {
+        const r = entry.result;
+        const stars = '★'.repeat(Math.floor(r.averageRating)) + (r.averageRating % 1 >= 0.5 ? '½' : '');
+        const cls = sentimentColors[r.overallSentiment] ?? '';
+        return `
+      <div class="history-item ${cls}" data-key="${encodeURIComponent(key)}">
+        <div style="min-width:0">
+          <div class="history-item-name">${r.placeName}</div>
+          <div class="history-item-meta">
+            <span class="history-stars">${stars}</span>
+            <span>${r.averageRating}</span>
+            <span>·</span>
+            <span>${r.totalReviews.toLocaleString()} reviews</span>
+            <span>·</span>
+            <span>${timeAgo(entry.timestamp)}</span>
+          </div>
+        </div>
+        <button class="history-delete" data-key="${encodeURIComponent(key)}" title="Remove">✕</button>
+      </div>`;
+    }).join('');
+    setScreen('history');
 }
 // ─── Messaging ────────────────────────────────────────────────────────────────
 function sendTabMessage(tabId, message) {
@@ -192,6 +261,31 @@ function renderResult(data, timestamp) {
     }
     setScreen('result');
 }
+// ─── Loading steps ────────────────────────────────────────────────────────────
+function setLoadingStep(step, detail) {
+    const s1 = document.getElementById('step-1');
+    const s2 = document.getElementById('step-2');
+    const d1 = document.getElementById('step-1-detail');
+    const d2 = document.getElementById('step-2-detail');
+    if (step === 1) {
+        s1?.classList.replace('step-pending', 'step-active') || s1?.classList.add('step-active');
+        s2?.classList.add('step-pending');
+        if (d1)
+            d1.textContent = detail ?? 'Scrolling through reviews…';
+    }
+    else {
+        s1?.classList.remove('step-active');
+        s1?.classList.add('step-done');
+        const dot1 = s1?.querySelector('.step-dot');
+        if (dot1)
+            dot1.textContent = '✓';
+        if (d1 && detail)
+            d1.textContent = detail;
+        s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
+        if (d2)
+            d2.textContent = 'Summarizing with AI…';
+    }
+}
 // ─── Info screen ──────────────────────────────────────────────────────────────
 let currentTabUrl = '';
 let currentTabId = 0;
@@ -228,27 +322,21 @@ async function showInfoScreen() {
         if (nameEl)
             nameEl.textContent = 'Open a business on Google Maps';
     }
-    // Check cache
+    // If this place has been analyzed before, show the result immediately
     const cached = await getCachedResult(currentTabUrl);
-    const viewCacheBtn = document.getElementById('view-cache-btn');
-    const cacheNote = document.getElementById('cache-note');
     if (cached) {
-        if (viewCacheBtn)
-            viewCacheBtn.hidden = false;
-        if (cacheNote)
-            cacheNote.textContent = `Last analyzed ${timeAgo(cached.timestamp)}`;
+        renderResult(cached.result, cached.timestamp);
+        return;
     }
-    else {
-        if (viewCacheBtn)
-            viewCacheBtn.hidden = true;
-        if (cacheNote)
-            cacheNote.textContent = '';
-    }
+    const viewCacheBtn = document.getElementById('view-cache-btn');
+    if (viewCacheBtn)
+        viewCacheBtn.hidden = true;
     setScreen('info');
 }
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 async function runAnalyze() {
     setScreen('loading');
+    setLoadingStep(1);
     const settings = await getSettings();
     if (!currentTabId) {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -261,7 +349,8 @@ async function runAnalyze() {
     }
     let reviewsResponse;
     try {
-        reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews: settings.reviewCount });
+        const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
+        reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews });
     }
     catch (err) {
         console.error('[Review Lens] Message error:', err);
@@ -279,6 +368,7 @@ async function runAnalyze() {
     if (reviewsResponse.type === 'REVIEWS_DATA') {
         const { reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload;
         console.log(`[Review Lens] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
+        setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
         let summaryResponse;
         try {
             summaryResponse = await sendRuntimeMessage({
@@ -316,15 +406,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.scope-btn').forEach((b) => b.classList.remove('active'));
             btn.classList.add('active');
+            updateCountFieldVisibility(btn.dataset.value);
         });
+    });
+    // History screen
+    $('[data-action="open-history"]')?.addEventListener('click', () => showHistory());
+    $('[data-action="back-from-history"]')?.addEventListener('click', () => showInfoScreen());
+    document.getElementById('clear-history-btn')?.addEventListener('click', async () => {
+        await clearAllHistory();
+        showHistory();
+    });
+    document.getElementById('history-list')?.addEventListener('click', async (e) => {
+        const target = e.target;
+        const deleteBtn = target.closest('.history-delete');
+        if (deleteBtn) {
+            e.stopPropagation();
+            await deleteHistoryEntry(decodeURIComponent(deleteBtn.dataset.key ?? ''));
+            showHistory();
+            return;
+        }
+        const item = target.closest('.history-item');
+        if (item) {
+            const key = decodeURIComponent(item.dataset.key ?? '');
+            const entries = await getAllCacheEntries();
+            const found = entries.find((e) => e.key === key);
+            if (found)
+                renderResult(found.entry.result, found.entry.timestamp);
+        }
     });
     // Info screen actions
     $('[data-action="analyze"]')?.addEventListener('click', () => runAnalyze());
-    $('[data-action="view-cache"]')?.addEventListener('click', async () => {
-        const cached = await getCachedResult(currentTabUrl);
-        if (cached)
-            renderResult(cached.result, cached.timestamp);
-    });
     // Result screen actions
     $('[data-action="re-analyze"]')?.addEventListener('click', () => runAnalyze());
     $('[data-action="open-settings"]')?.addEventListener('click', () => setScreen('settings'));
