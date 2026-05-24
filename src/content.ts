@@ -7,33 +7,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Only return top-level review cards — skip elements nested inside another [data-review-id].
-// Google Maps sometimes puts child elements with the same attribute inside a card,
-// which causes raw querySelectorAll to over-count.
 function getReviewCards(): Element[] {
   return Array.from(document.querySelectorAll(REVIEW_CARD_SELECTOR)).filter(
     (el) => !el.parentElement?.closest(REVIEW_CARD_SELECTOR)
   );
-}
-
-// Wait until new review cards appear, or timeout
-function waitForNewReviews(previousCount: number, timeoutMs: number): Promise<number> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      resolve(getReviewCards().length);
-    }, timeoutMs);
-
-    const observer = new MutationObserver(() => {
-      const current = getReviewCards().length;
-      if (current > previousCount) {
-        clearTimeout(timer);
-        observer.disconnect();
-        resolve(current);
-      }
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
 }
 
 // If reviews tab isn't open yet, find and click it
@@ -49,7 +26,7 @@ async function ensureReviewsTabOpen(): Promise<void> {
   if (reviewsBtn) {
     reviewsBtn.click();
     console.log('[Review Lens] Clicked Reviews tab, waiting for cards…');
-    await waitForNewReviews(0, 3000);
+    await sleep(2500);
   }
 }
 
@@ -60,7 +37,7 @@ function clickMoreReviewsButton(): boolean {
     document.querySelectorAll<HTMLElement>('button, [role="button"], a')
   );
   const btn = candidates.find((el) => {
-    if (!el.offsetParent) return false; // hidden
+    if (!el.offsetParent) return false;
     return keywords.test(el.textContent?.trim() ?? '') ||
            keywords.test(el.getAttribute('aria-label') ?? '');
   });
@@ -72,57 +49,36 @@ function clickMoreReviewsButton(): boolean {
   return false;
 }
 
-// Scroll the last card into view — the browser finds the right container automatically.
-// When scrolling stalls, try clicking a "More reviews" button before giving up.
-async function scrollToLoadReviews(maxReviews: number): Promise<void> {
-  await ensureReviewsTabOpen();
+// Scroll past the last card to trigger Google Maps lazy-loading.
+function scrollReviewsPanel(lastCard: Element): void {
+  // 1. Insert a 1px sentinel immediately after the last card and scroll to it.
+  //    scrollIntoView on an already-visible card does nothing; the sentinel is
+  //    always just below it, so the panel must scroll down to show it.
+  const sentinel = document.createElement('div');
+  sentinel.style.cssText = 'height:1px;width:1px;pointer-events:none;';
+  lastCard.after(sentinel);
+  sentinel.scrollIntoView({ behavior: 'instant', block: 'end' });
+  sentinel.remove();
 
-  if (getReviewCards().length === 0) {
-    console.log('[Review Lens] No review cards found after tab open attempt');
-    return;
+  // 2. Also walk ancestors setting scrollTop = scrollHeight (catches fixed panels).
+  let node: Element | null = lastCard.parentElement;
+  while (node && node !== document.documentElement) {
+    const prev = node.scrollTop;
+    node.scrollTop = node.scrollHeight;
+    if (node.scrollTop !== prev) break; // stop at first element that actually scrolled
+    node = node.parentElement;
   }
 
-  let stableRounds = 0;
-  const MAX_STABLE = 3;
-
-  while (stableRounds < MAX_STABLE) {
-    const cards = getReviewCards();
-    if (cards.length >= maxReviews) break;
-
-    const countBefore = cards.length;
-    const lastCard = cards[cards.length - 1] as HTMLElement | undefined;
-    lastCard?.scrollIntoView({ behavior: 'instant', block: 'end' });
-
-    const countAfter = await waitForNewReviews(countBefore, 2000);
-    console.log(`[Review Lens] Scroll: ${countAfter} reviews in DOM`);
-
-    if (countAfter === countBefore) {
-      // Scrolling didn't load more — try a "More reviews" button
-      const clicked = clickMoreReviewsButton();
-      if (clicked) {
-        const countAfterClick = await waitForNewReviews(countBefore, 3000);
-        if (countAfterClick > countBefore) {
-          stableRounds = 0;
-          continue;
-        }
-      }
-      stableRounds++;
-    } else {
-      stableRounds = 0;
-    }
-  }
-
-  console.log(`[Review Lens] Done: ${getReviewCards().length} reviews collected`);
+  // 3. Window scroll for mobile/responsive layouts where the page itself scrolls.
+  window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
 // ─── Scraping ─────────────────────────────────────────────────────────────────
 
-// Scrape Google's own aggregate rating and total review count from the page header.
-// Skips individual review-card stars to avoid false matches.
 function scrapeGoogleAggregateRating(): { googleRating: number | null; googleReviewCount: number | null } {
   const candidates = Array.from(document.querySelectorAll('[aria-label*=" star"]'));
   for (const el of candidates) {
-    if (el.closest(REVIEW_CARD_SELECTOR)) continue; // skip per-review stars
+    if (el.closest(REVIEW_CARD_SELECTOR)) continue;
     const label = el.getAttribute('aria-label') ?? '';
     const ratingMatch = label.match(/(\d+(?:\.\d+)?)\s*stars?/i);
     if (!ratingMatch) continue;
@@ -142,86 +98,37 @@ function extractStarRating(el: Element): number {
   return 0;
 }
 
-function scrapeMapReviews(): { reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number } {
-  const reviews: Review[] = [];
-  const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
+function extractReviewFromCard(card: Element): Review | null {
+  const textEl =
+    card.querySelector('.wiI7pd') ??
+    card.querySelector('[class*="review-full-text"]') ??
+    card.querySelector('span[jslog]') ??
+    card;
 
-  getReviewCards().forEach((card) => {
-    const textEl =
-      card.querySelector('.wiI7pd') ??
-      card.querySelector('[class*="review-full-text"]') ??
-      card.querySelector('span[jslog]') ??
-      card;
+  const ratingEl =
+    card.querySelector('span[role="img"][aria-label*="star"]') ??
+    card.querySelector('[aria-label*="star"]') ??
+    card.querySelector('[aria-label*="Star"]');
 
-    const ratingEl =
-      card.querySelector('span[role="img"][aria-label*="star"]') ??
-      card.querySelector('[aria-label*="star"]') ??
-      card.querySelector('[aria-label*="Star"]');
+  const authorEl =
+    card.querySelector('.d4r55') ??
+    card.querySelector('.TSUbDb') ??
+    card.querySelector('button[class*="fontBodyMedium"]');
 
-    const authorEl =
-      card.querySelector('.d4r55') ??
-      card.querySelector('.TSUbDb') ??
-      card.querySelector('button[class*="fontBodyMedium"]');
+  const dateEl = card.querySelector('.rsqaWe, .dehysf, [class*="date"]');
 
-    const dateEl = card.querySelector('.rsqaWe, .dehysf, [class*="date"]');
-
-    let text = textEl?.textContent?.trim() ?? '';
-    if (text.length > 2000) {
-      text = text.split('\n').filter((l) => l.trim().length > 10).slice(0, 3).join(' ').substring(0, 500);
-    }
-    if (!text || text.length < 5) return;
-
-    reviews.push({
-      author: authorEl?.textContent?.trim() ?? 'Anonymous',
-      rating: ratingEl ? extractStarRating(ratingEl) : 0,
-      text,
-      date: dateEl?.textContent?.trim(),
-    });
-  });
-
-  const placeNameEl =
-    document.querySelector('h1.DUwDvf') ??
-    document.querySelector('h1[class*="fontHeadlineLarge"]') ??
-    document.querySelector('h1');
-
-  return {
-    reviews,
-    placeName: placeNameEl?.textContent?.trim() ?? document.title ?? 'This Place',
-    ...(googleRating !== null && { googleRating }),
-    ...(googleReviewCount !== null && { googleReviewCount }),
-  };
-}
-
-function scrapeSearchReviews(): { reviews: Review[]; placeName: string } {
-  const reviews: Review[] = [];
-
-  document.querySelectorAll('.gws-localreviews__google-review').forEach((card) => {
-    const text = card.querySelector('.Jtu6Td')?.textContent?.trim() ?? '';
-    if (!text) return;
-    const ratingEl = card.querySelector('[aria-label*="Rated"]');
-    reviews.push({
-      author: card.querySelector('.TSUbDb')?.textContent?.trim() ?? 'Anonymous',
-      rating: ratingEl ? extractStarRating(ratingEl) : 0,
-      text,
-    });
-  });
-
-  const placeNameEl =
-    document.querySelector('.qrShPb') ?? document.querySelector('[data-attrid="title"] span');
-
-  return {
-    reviews,
-    placeName: placeNameEl?.textContent?.trim() ?? document.title ?? 'This Place',
-  };
-}
-
-function collectReviews(): { reviews: Review[]; placeName: string } {
-  const url = window.location.href;
-  if (url.includes('maps.google.com') || url.includes('google.com/maps')) {
-    return scrapeMapReviews();
+  let text = textEl?.textContent?.trim() ?? '';
+  if (text.length > 2000) {
+    text = text.split('\n').filter((l) => l.trim().length > 10).slice(0, 3).join(' ').substring(0, 500);
   }
-  const mapsResult = scrapeMapReviews();
-  return mapsResult.reviews.length > 0 ? mapsResult : scrapeSearchReviews();
+  if (!text || text.length < 5) return null;
+
+  return {
+    author: authorEl?.textContent?.trim() ?? 'Anonymous',
+    rating: ratingEl ? extractStarRating(ratingEl) : 0,
+    text,
+    date: dateEl?.textContent?.trim(),
+  };
 }
 
 function scrapeBasicInfo(): { placeName: string; googleRating?: number; googleReviewCount?: number } {
@@ -237,9 +144,95 @@ function scrapeBasicInfo(): { placeName: string; googleRating?: number; googleRe
   };
 }
 
+// ─── Incremental scroll + scrape ──────────────────────────────────────────────
+
+// Updated by scrollAndScrapeReviews so GET_PROGRESS can report live count.
+let progressCount = 0;
+
+async function scrollAndScrapeReviews(
+  maxReviews: number
+): Promise<{ reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number }> {
+  await ensureReviewsTabOpen();
+
+  if (getReviewCards().length === 0) {
+    console.log('[Review Lens] No review cards found after tab open attempt');
+    return { reviews: [], placeName: document.title };
+  }
+
+  const seenKeys = new Set<string>();
+  const allReviews: Review[] = [];
+
+  function collectVisible(): number {
+    let added = 0;
+    for (const card of getReviewCards()) {
+      const review = extractReviewFromCard(card);
+      if (!review) continue;
+      const key = `${review.author}|${review.text.slice(0, 60)}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        allReviews.push(review);
+        added++;
+      }
+    }
+    progressCount = allReviews.length;
+    return added;
+  }
+
+  // Grab the first visible batch before scrolling
+  collectVisible();
+
+  let stableRounds = 0;
+  const MAX_STABLE = 5;
+
+  while (stableRounds < MAX_STABLE && allReviews.length < maxReviews) {
+    const lastCard = getReviewCards().slice(-1)[0];
+    if (lastCard) scrollReviewsPanel(lastCard);
+
+    await sleep(2500);
+
+    const added = collectVisible();
+    console.log(`[Review Lens] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
+
+    if (added === 0) {
+      const clicked = clickMoreReviewsButton();
+      if (clicked) {
+        await sleep(2500);
+        const addedAfterClick = collectVisible();
+        if (addedAfterClick > 0) {
+          stableRounds = 0;
+          continue;
+        }
+      }
+      stableRounds++;
+    } else {
+      stableRounds = 0;
+    }
+  }
+
+  console.log(`[Review Lens] Done: ${allReviews.length} unique reviews`);
+
+  const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
+  const placeNameEl =
+    document.querySelector('h1.DUwDvf') ??
+    document.querySelector('h1[class*="fontHeadlineLarge"]') ??
+    document.querySelector('h1');
+
+  return {
+    reviews: allReviews.slice(0, maxReviews),
+    placeName: placeNameEl?.textContent?.trim() ?? document.title ?? 'This Place',
+    ...(googleRating !== null && { googleRating }),
+    ...(googleReviewCount !== null && { googleReviewCount }),
+  };
+}
+
 // ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
+  if (message.type === 'GET_PROGRESS') {
+    sendResponse({ type: 'PROGRESS', payload: { count: progressCount || getReviewCards().length } } satisfies MessageType);
+    return true;
+  }
+
   if (message.type === 'GET_BASIC_INFO') {
     try {
       sendResponse({ type: 'BASIC_INFO', payload: scrapeBasicInfo() } satisfies MessageType);
@@ -252,12 +245,12 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendRespons
   if (message.type === 'GET_REVIEWS') {
     (async () => {
       try {
-        await scrollToLoadReviews(message.maxReviews ?? 1000);
-        const { reviews, placeName } = collectReviews();
-        if (reviews.length === 0) {
+        progressCount = 0;
+        const result = await scrollAndScrapeReviews(message.maxReviews ?? 1000);
+        if (result.reviews.length === 0) {
           sendResponse({ type: 'NO_REVIEWS' } satisfies MessageType);
         } else {
-          sendResponse({ type: 'REVIEWS_DATA', payload: { reviews, placeName } } satisfies MessageType);
+          sendResponse({ type: 'REVIEWS_DATA', payload: result } satisfies MessageType);
         }
       } catch (err) {
         sendResponse({ type: 'ERROR', payload: String(err) } satisfies MessageType);

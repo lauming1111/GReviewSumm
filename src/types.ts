@@ -28,5 +28,7 @@ export type MessageType =
   | { type: 'REVIEWS_DATA'; payload: { reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number } }
   | { type: 'SUMMARIZE'; payload: { reviews: Review[]; placeName: string; settings: ReviewSettings; googleRating?: number; googleReviewCount?: number } }
   | { type: 'SUMMARY_RESULT'; payload: SummaryResult }
+  | { type: 'GET_PROGRESS' }
+  | { type: 'PROGRESS'; payload: { count: number } }
   | { type: 'ERROR'; payload: string }
   | { type: 'NO_REVIEWS' };

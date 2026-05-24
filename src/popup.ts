@@ -291,10 +291,69 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
     analyzedAt.textContent = timestamp ? `Analyzed ${timeAgo(timestamp)}` : '';
   }
 
+  stopAllStepTimers();
   setScreen('result');
 }
 
+// ─── Progress polling ─────────────────────────────────────────────────────────
+
+let progressPollInterval: ReturnType<typeof setInterval> | null = null;
+
+function startProgressPoll(tabId: number): void {
+  progressPollInterval = setInterval(async () => {
+    try {
+      const response = await sendTabMessage(tabId, { type: 'GET_PROGRESS' } satisfies MessageType);
+      if (response.type === 'PROGRESS') {
+        const d1 = document.getElementById('step-1-detail');
+        if (d1) d1.textContent = `${response.payload.count.toLocaleString()} reviews found`;
+      }
+    } catch {
+      // tab not ready yet — ignore
+    }
+  }, 800);
+}
+
+function stopProgressPoll(): void {
+  if (progressPollInterval !== null) {
+    clearInterval(progressPollInterval);
+    progressPollInterval = null;
+  }
+}
+
 // ─── Loading steps ────────────────────────────────────────────────────────────
+
+const stepStartTimes: Partial<Record<1 | 2, number>> = {};
+const stepIntervals: Partial<Record<1 | 2, ReturnType<typeof setInterval>>> = {};
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function startStepTimer(step: 1 | 2): void {
+  stepStartTimes[step] = Date.now();
+  const el = document.getElementById(`step-${step}-time`);
+  if (el) el.textContent = '0s';
+  stepIntervals[step] = setInterval(() => {
+    const elapsed = Date.now() - (stepStartTimes[step] ?? Date.now());
+    if (el) el.textContent = formatElapsed(elapsed);
+  }, 1000);
+}
+
+function stopStepTimer(step: 1 | 2): void {
+  clearInterval(stepIntervals[step]);
+  delete stepIntervals[step];
+  const elapsed = Date.now() - (stepStartTimes[step] ?? Date.now());
+  const el = document.getElementById(`step-${step}-time`);
+  if (el) el.textContent = formatElapsed(elapsed);
+}
+
+function stopAllStepTimers(): void {
+  ([1, 2] as const).forEach((s) => {
+    if (stepIntervals[s]) stopStepTimer(s);
+  });
+}
 
 function setLoadingStep(step: 1 | 2, detail?: string): void {
   const s1 = document.getElementById('step-1');
@@ -306,7 +365,9 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
     s1?.classList.replace('step-pending', 'step-active') || s1?.classList.add('step-active');
     s2?.classList.add('step-pending');
     if (d1) d1.textContent = detail ?? 'Scrolling through reviews…';
+    startStepTimer(1);
   } else {
+    stopStepTimer(1);
     s1?.classList.remove('step-active');
     s1?.classList.add('step-done');
     const dot1 = s1?.querySelector('.step-dot');
@@ -314,6 +375,7 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
     if (d1 && detail) d1.textContent = detail;
     s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
     if (d2) d2.textContent = 'Summarizing with AI…';
+    startStepTimer(2);
   }
 }
 
@@ -370,7 +432,6 @@ async function showInfoScreen(): Promise<void> {
 async function runAnalyze(): Promise<void> {
   setScreen('loading');
   setLoadingStep(1);
-
   const settings = await getSettings();
 
   if (!currentTabId) {
@@ -384,15 +445,20 @@ async function runAnalyze(): Promise<void> {
     return;
   }
 
+  startProgressPoll(currentTabId);
+
   let reviewsResponse: MessageType;
   try {
     const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
     reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews } satisfies MessageType);
   } catch (err) {
+    stopProgressPoll();
     console.error('[Review Lens] Message error:', err);
     showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
     return;
   }
+
+  stopProgressPoll();
 
   if (reviewsResponse.type === 'NO_REVIEWS') { setScreen('no-reviews'); return; }
   if (reviewsResponse.type === 'ERROR') { showError(reviewsResponse.payload); return; }

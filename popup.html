@@ -329,6 +329,12 @@
       100% { box-shadow: 0 0 0 0   rgba(108, 99, 255, 0);    }
     }
 
+    .step-label-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .step-label {
       font-family: 'Syne', sans-serif;
       font-size: 13px;
@@ -336,6 +342,14 @@
       line-height: 1.2;
       color: var(--text-muted);
       transition: color 0.3s;
+    }
+
+    .step-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      opacity: 0.6;
+      font-variant-numeric: tabular-nums;
+      min-width: 24px;
     }
 
     .step.step-active .step-label { color: var(--text); }
@@ -728,15 +742,21 @@
     <div class="steps">
       <div class="step step-active" id="step-1">
         <div class="step-dot">●</div>
-        <div>
-          <div class="step-label">Gathering data</div>
+        <div style="flex:1">
+          <div class="step-label-row">
+            <span class="step-label">Gathering data</span>
+            <span class="step-time" id="step-1-time"></span>
+          </div>
           <div class="step-detail" id="step-1-detail">Scrolling through reviews…</div>
         </div>
       </div>
       <div class="step step-pending" id="step-2">
         <div class="step-dot"></div>
-        <div>
-          <div class="step-label">AI processing</div>
+        <div style="flex:1">
+          <div class="step-label-row">
+            <span class="step-label">AI processing</span>
+            <span class="step-time" id="step-2-time"></span>
+          </div>
           <div class="step-detail" id="step-2-detail">Waiting…</div>
         </div>
       </div>

@@ -259,9 +259,66 @@ function renderResult(data, timestamp) {
     if (analyzedAt) {
         analyzedAt.textContent = timestamp ? `Analyzed ${timeAgo(timestamp)}` : '';
     }
+    stopAllStepTimers();
     setScreen('result');
 }
+// ─── Progress polling ─────────────────────────────────────────────────────────
+let progressPollInterval = null;
+function startProgressPoll(tabId) {
+    progressPollInterval = setInterval(async () => {
+        try {
+            const response = await sendTabMessage(tabId, { type: 'GET_PROGRESS' });
+            if (response.type === 'PROGRESS') {
+                const d1 = document.getElementById('step-1-detail');
+                if (d1)
+                    d1.textContent = `${response.payload.count.toLocaleString()} reviews found`;
+            }
+        }
+        catch {
+            // tab not ready yet — ignore
+        }
+    }, 800);
+}
+function stopProgressPoll() {
+    if (progressPollInterval !== null) {
+        clearInterval(progressPollInterval);
+        progressPollInterval = null;
+    }
+}
 // ─── Loading steps ────────────────────────────────────────────────────────────
+const stepStartTimes = {};
+const stepIntervals = {};
+function formatElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    if (s < 60)
+        return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+function startStepTimer(step) {
+    stepStartTimes[step] = Date.now();
+    const el = document.getElementById(`step-${step}-time`);
+    if (el)
+        el.textContent = '0s';
+    stepIntervals[step] = setInterval(() => {
+        const elapsed = Date.now() - (stepStartTimes[step] ?? Date.now());
+        if (el)
+            el.textContent = formatElapsed(elapsed);
+    }, 1000);
+}
+function stopStepTimer(step) {
+    clearInterval(stepIntervals[step]);
+    delete stepIntervals[step];
+    const elapsed = Date.now() - (stepStartTimes[step] ?? Date.now());
+    const el = document.getElementById(`step-${step}-time`);
+    if (el)
+        el.textContent = formatElapsed(elapsed);
+}
+function stopAllStepTimers() {
+    [1, 2].forEach((s) => {
+        if (stepIntervals[s])
+            stopStepTimer(s);
+    });
+}
 function setLoadingStep(step, detail) {
     const s1 = document.getElementById('step-1');
     const s2 = document.getElementById('step-2');
@@ -272,8 +329,10 @@ function setLoadingStep(step, detail) {
         s2?.classList.add('step-pending');
         if (d1)
             d1.textContent = detail ?? 'Scrolling through reviews…';
+        startStepTimer(1);
     }
     else {
+        stopStepTimer(1);
         s1?.classList.remove('step-active');
         s1?.classList.add('step-done');
         const dot1 = s1?.querySelector('.step-dot');
@@ -284,6 +343,7 @@ function setLoadingStep(step, detail) {
         s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
         if (d2)
             d2.textContent = 'Summarizing with AI…';
+        startStepTimer(2);
     }
 }
 // ─── Info screen ──────────────────────────────────────────────────────────────
@@ -347,16 +407,19 @@ async function runAnalyze() {
         showError('Cannot access current tab.');
         return;
     }
+    startProgressPoll(currentTabId);
     let reviewsResponse;
     try {
         const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
         reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews });
     }
     catch (err) {
+        stopProgressPoll();
         console.error('[Review Lens] Message error:', err);
         showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
         return;
     }
+    stopProgressPoll();
     if (reviewsResponse.type === 'NO_REVIEWS') {
         setScreen('no-reviews');
         return;
