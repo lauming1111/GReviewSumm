@@ -30,5 +30,6 @@ export type MessageType =
   | { type: 'SUMMARY_RESULT'; payload: SummaryResult }
   | { type: 'GET_PROGRESS' }
   | { type: 'PROGRESS'; payload: { count: number } }
+  | { type: 'STOP_REVIEWS' }
   | { type: 'ERROR'; payload: string }
   | { type: 'NO_REVIEWS' };

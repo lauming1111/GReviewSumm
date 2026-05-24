@@ -262,6 +262,20 @@ function renderResult(data, timestamp) {
     stopAllStepTimers();
     setScreen('result');
 }
+// ─── Cancellation ────────────────────────────────────────────────────────────
+let analysisCancelled = false;
+async function stopAnalysis() {
+    analysisCancelled = true;
+    stopProgressPoll();
+    stopAllStepTimers();
+    try {
+        if (currentTabId) {
+            await sendToTab(currentTabId, { type: 'STOP_REVIEWS' });
+        }
+    }
+    catch { /* tab may have closed */ }
+    await showInfoScreen();
+}
 // ─── Progress polling ─────────────────────────────────────────────────────────
 let progressPollInterval = null;
 function startProgressPoll(tabId) {
@@ -395,6 +409,7 @@ async function showInfoScreen() {
 }
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 async function runAnalyze() {
+    analysisCancelled = false;
     setScreen('loading');
     setLoadingStep(1);
     const settings = await getSettings();
@@ -420,6 +435,8 @@ async function runAnalyze() {
         return;
     }
     stopProgressPoll();
+    if (analysisCancelled)
+        return;
     if (reviewsResponse.type === 'NO_REVIEWS') {
         setScreen('no-reviews');
         return;
@@ -444,6 +461,8 @@ async function runAnalyze() {
             showError(`Failed to summarize: ${err}`);
             return;
         }
+        if (analysisCancelled)
+            return;
         if (summaryResponse.type === 'SUMMARY_RESULT') {
             const timestamp = Date.now();
             await setCachedResult(currentTabUrl, summaryResponse.payload);
@@ -509,6 +528,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await runAnalyze();
     });
     $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
+    // Stop button
+    document.getElementById('stop-btn')?.addEventListener('click', () => stopAnalysis());
     // Error / no-reviews actions
     $('[data-action="retry"]')?.addEventListener('click', () => runAnalyze());
     $('[data-action="back"]')?.addEventListener('click', () => showInfoScreen());

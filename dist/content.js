@@ -124,6 +124,7 @@ function scrapeBasicInfo() {
 // ─── Incremental scroll + scrape ──────────────────────────────────────────────
 // Updated by scrollAndScrapeReviews so GET_PROGRESS can report live count.
 let progressCount = 0;
+let shouldStop = false;
 async function scrollAndScrapeReviews(maxReviews) {
     await ensureReviewsTabOpen();
     if (getReviewCards().length === 0) {
@@ -152,7 +153,7 @@ async function scrollAndScrapeReviews(maxReviews) {
     collectVisible();
     let stableRounds = 0;
     const MAX_STABLE = 5;
-    while (stableRounds < MAX_STABLE && allReviews.length < maxReviews) {
+    while (stableRounds < MAX_STABLE && allReviews.length < maxReviews && !shouldStop) {
         const lastCard = getReviewCards().slice(-1)[0];
         if (lastCard)
             scrollReviewsPanel(lastCard);
@@ -189,6 +190,11 @@ async function scrollAndScrapeReviews(maxReviews) {
 }
 // ─── Message listener ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'STOP_REVIEWS') {
+        shouldStop = true;
+        sendResponse({ type: 'NO_REVIEWS' });
+        return true;
+    }
     if (message.type === 'GET_PROGRESS') {
         sendResponse({ type: 'PROGRESS', payload: { count: progressCount || getReviewCards().length } });
         return true;
@@ -206,6 +212,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         (async () => {
             try {
                 progressCount = 0;
+                shouldStop = false;
                 const result = await scrollAndScrapeReviews(message.maxReviews ?? 1000);
                 if (result.reviews.length === 0) {
                     sendResponse({ type: 'NO_REVIEWS' });

@@ -148,6 +148,7 @@ function scrapeBasicInfo(): { placeName: string; googleRating?: number; googleRe
 
 // Updated by scrollAndScrapeReviews so GET_PROGRESS can report live count.
 let progressCount = 0;
+let shouldStop = false;
 
 async function scrollAndScrapeReviews(
   maxReviews: number
@@ -184,7 +185,7 @@ async function scrollAndScrapeReviews(
   let stableRounds = 0;
   const MAX_STABLE = 5;
 
-  while (stableRounds < MAX_STABLE && allReviews.length < maxReviews) {
+  while (stableRounds < MAX_STABLE && allReviews.length < maxReviews && !shouldStop) {
     const lastCard = getReviewCards().slice(-1)[0];
     if (lastCard) scrollReviewsPanel(lastCard);
 
@@ -228,6 +229,12 @@ async function scrollAndScrapeReviews(
 // ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
+  if (message.type === 'STOP_REVIEWS') {
+    shouldStop = true;
+    sendResponse({ type: 'NO_REVIEWS' } satisfies MessageType);
+    return true;
+  }
+
   if (message.type === 'GET_PROGRESS') {
     sendResponse({ type: 'PROGRESS', payload: { count: progressCount || getReviewCards().length } } satisfies MessageType);
     return true;
@@ -246,6 +253,7 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendRespons
     (async () => {
       try {
         progressCount = 0;
+        shouldStop = false;
         const result = await scrollAndScrapeReviews(message.maxReviews ?? 1000);
         if (result.reviews.length === 0) {
           sendResponse({ type: 'NO_REVIEWS' } satisfies MessageType);

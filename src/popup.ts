@@ -295,6 +295,22 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
   setScreen('result');
 }
 
+// ─── Cancellation ────────────────────────────────────────────────────────────
+
+let analysisCancelled = false;
+
+async function stopAnalysis(): Promise<void> {
+  analysisCancelled = true;
+  stopProgressPoll();
+  stopAllStepTimers();
+  try {
+    if (currentTabId) {
+      await sendToTab(currentTabId, { type: 'STOP_REVIEWS' } satisfies MessageType);
+    }
+  } catch { /* tab may have closed */ }
+  await showInfoScreen();
+}
+
 // ─── Progress polling ─────────────────────────────────────────────────────────
 
 let progressPollInterval: ReturnType<typeof setInterval> | null = null;
@@ -430,6 +446,7 @@ async function showInfoScreen(): Promise<void> {
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 
 async function runAnalyze(): Promise<void> {
+  analysisCancelled = false;
   setScreen('loading');
   setLoadingStep(1);
   const settings = await getSettings();
@@ -460,6 +477,7 @@ async function runAnalyze(): Promise<void> {
 
   stopProgressPoll();
 
+  if (analysisCancelled) return;
   if (reviewsResponse.type === 'NO_REVIEWS') { setScreen('no-reviews'); return; }
   if (reviewsResponse.type === 'ERROR') { showError(reviewsResponse.payload); return; }
 
@@ -480,6 +498,7 @@ async function runAnalyze(): Promise<void> {
       return;
     }
 
+    if (analysisCancelled) return;
     if (summaryResponse.type === 'SUMMARY_RESULT') {
       const timestamp = Date.now();
       await setCachedResult(currentTabUrl, summaryResponse.payload);
@@ -555,6 +574,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
+
+  // Stop button
+  document.getElementById('stop-btn')?.addEventListener('click', () => stopAnalysis());
 
   // Error / no-reviews actions
   $('[data-action="retry"]')?.addEventListener('click', () => runAnalyze());
