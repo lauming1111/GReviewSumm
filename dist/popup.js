@@ -19,8 +19,18 @@ const DEFAULT_SETTINGS = {
     anthropicModel: AI_DEFAULTS.ANTHROPIC_MODEL,
     geminiModel: AI_DEFAULTS.GEMINI_MODEL,
     groqModel: AI_DEFAULTS.GROQ_MODEL,
+    xaiModel: AI_DEFAULTS.XAI_MODEL,
 };
-const ALL_PROVIDERS = ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'custom'];
+const ALL_PROVIDERS = ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'xai', 'custom'];
+// Default placeholder text for each provider's key input
+const KEY_PLACEHOLDERS = {
+    openai: 'sk-…',
+    anthropic: 'sk-ant-…',
+    gemini: 'AIza…',
+    groq: 'gsk_…',
+    xai: 'xai-…',
+    custom: 'Leave blank if not required',
+};
 async function getSettings() {
     return new Promise((resolve) => {
         chrome.storage.local.get(['gReviewSummSettings'], (result) => {
@@ -33,6 +43,46 @@ async function saveSettings(settings) {
         chrome.storage.local.set({ gReviewSummSettings: settings }, resolve);
     });
 }
+// ─── Key protection ───────────────────────────────────────────────────────────
+//
+// API keys are NEVER loaded into input.value — they stay in chrome.storage only.
+// The UI shows a "✓ Saved" badge and a "✕" clear button when a key is stored.
+// Leaving the input blank on save preserves the existing key; clicking "✕" removes it.
+/** Providers whose keys the user explicitly cleared in this settings session. */
+const _clearKeys = new Set();
+/** The settings that were loaded when the settings panel was last opened. */
+let _loadedSettings = { ...DEFAULT_SETTINGS };
+/** Render key-field status for one provider. Never populates the input value. */
+function applyKeyStatus(provider, hasKey) {
+    const statusEl = document.getElementById(`${provider}-key-status`);
+    const clearBtn = document.getElementById(`${provider}-clear-key`);
+    const inputEl = document.querySelector(`#${provider}-key-input`);
+    const placeholder = KEY_PLACEHOLDERS[provider] ?? 'API key';
+    if (statusEl) {
+        statusEl.textContent = hasKey ? '✓ Saved' : '';
+        statusEl.className = `key-status${hasKey ? ' saved' : ''}`;
+    }
+    if (clearBtn)
+        clearBtn.hidden = !hasKey;
+    if (inputEl) {
+        inputEl.value = ''; // never expose the key
+        inputEl.placeholder = hasKey ? 'Leave blank to keep · or enter a new key' : placeholder;
+    }
+}
+/**
+ * Read a provider's key from the UI.
+ * - If the user typed something → use it.
+ * - If the user explicitly clicked "✕ Clear" → return undefined (removes the key).
+ * - Otherwise (input left empty) → preserve the key from storage.
+ */
+function readKeyFromUI(inputId, provider, existingKey) {
+    if (_clearKeys.has(provider))
+        return undefined;
+    const el = document.querySelector(`#${inputId}`);
+    const typed = el?.value.trim();
+    return typed || existingKey || undefined;
+}
+// ─── Provider / count field visibility ───────────────────────────────────────
 function updateCountFieldVisibility(mode) {
     const wrapper = document.getElementById('count-field-wrapper');
     if (wrapper)
@@ -45,7 +95,7 @@ function updateProviderVisibility(provider) {
             el.hidden = p !== provider;
     });
 }
-/** Update a range slider and its live-value label. */
+// ─── Slider helper ────────────────────────────────────────────────────────────
 function setSlider(inputId, valId, value) {
     const input = document.querySelector(`#${inputId}`);
     const label = document.getElementById(valId);
@@ -54,7 +104,9 @@ function setSlider(inputId, valId, value) {
     if (label)
         label.textContent = String(value);
 }
+// ─── Apply / read settings ────────────────────────────────────────────────────
 function applySettingsToUI(settings) {
+    _loadedSettings = { ...settings };
     // Review scope buttons
     document.querySelectorAll('#review-mode-group .scope-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
@@ -82,71 +134,52 @@ function applySettingsToUI(settings) {
         topkEl.value = String(p.topK ?? AI_DEFAULTS.OLLAMA_TOP_K);
     if (numctxEl)
         numctxEl.value = String(p.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX);
-    // ── OpenAI ──────────────────────────────────────────────────────────────────
-    const openaiKeyEl = document.querySelector('#openai-key-input');
-    if (openaiKeyEl)
-        openaiKeyEl.value = settings.openaiApiKey ?? '';
+    // ── Model selects / inputs (non-key) ────────────────────────────────────────
     const openaiModelEl = document.querySelector('#openai-model-select');
     if (openaiModelEl)
         openaiModelEl.value = settings.openaiModel ?? DEFAULT_SETTINGS.openaiModel ?? 'gpt-4o-mini';
-    // ── Anthropic ───────────────────────────────────────────────────────────────
-    const anthropicKeyEl = document.querySelector('#anthropic-key-input');
-    if (anthropicKeyEl)
-        anthropicKeyEl.value = settings.anthropicApiKey ?? '';
     const anthropicModelEl = document.querySelector('#anthropic-model-input');
     if (anthropicModelEl)
         anthropicModelEl.value = settings.anthropicModel ?? DEFAULT_SETTINGS.anthropicModel ?? '';
-    // ── Gemini ──────────────────────────────────────────────────────────────────
-    const geminiKeyEl = document.querySelector('#gemini-key-input');
-    if (geminiKeyEl)
-        geminiKeyEl.value = settings.geminiApiKey ?? '';
     const geminiModelEl = document.querySelector('#gemini-model-select');
     if (geminiModelEl)
         geminiModelEl.value = settings.geminiModel ?? DEFAULT_SETTINGS.geminiModel ?? 'gemini-2.0-flash';
-    // ── Groq ────────────────────────────────────────────────────────────────────
-    const groqKeyEl = document.querySelector('#groq-key-input');
-    if (groqKeyEl)
-        groqKeyEl.value = settings.groqApiKey ?? '';
     const groqModelEl = document.querySelector('#groq-model-select');
     if (groqModelEl)
         groqModelEl.value = settings.groqModel ?? DEFAULT_SETTINGS.groqModel ?? 'llama-3.3-70b-versatile';
-    // ── Custom ──────────────────────────────────────────────────────────────────
+    const xaiModelEl = document.querySelector('#xai-model-select');
+    if (xaiModelEl)
+        xaiModelEl.value = settings.xaiModel ?? DEFAULT_SETTINGS.xaiModel ?? 'grok-3-mini-latest';
     const customEndpointEl = document.querySelector('#custom-endpoint-input');
     if (customEndpointEl)
         customEndpointEl.value = settings.customEndpoint ?? '';
-    const customKeyEl = document.querySelector('#custom-key-input');
-    if (customKeyEl)
-        customKeyEl.value = settings.customApiKey ?? '';
     const customModelEl = document.querySelector('#custom-model-input');
     if (customModelEl)
         customModelEl.value = settings.customModel ?? '';
+    // ── API key status (never expose the key itself) ─────────────────────────────
+    applyKeyStatus('openai', !!settings.openaiApiKey);
+    applyKeyStatus('anthropic', !!settings.anthropicApiKey);
+    applyKeyStatus('gemini', !!settings.geminiApiKey);
+    applyKeyStatus('groq', !!settings.groqApiKey);
+    applyKeyStatus('xai', !!settings.xaiApiKey);
+    applyKeyStatus('custom', !!settings.customApiKey);
 }
 function readSettingsFromUI() {
     const activeScope = document.querySelector('#review-mode-group .scope-btn.active');
     const activeProvider = document.querySelector('#ai-provider-group .scope-btn.active');
     const countInput = document.querySelector('#review-count-input');
-    // Ollama
     const ollamaModelEl = document.querySelector('#ollama-model-input');
     const ollamaTempEl = document.querySelector('#ollama-temp');
     const ollamaToppEl = document.querySelector('#ollama-topp');
     const ollamaRpEl = document.querySelector('#ollama-rp');
     const ollamaTopkEl = document.querySelector('#ollama-topk');
     const ollamaNumctxEl = document.querySelector('#ollama-numctx');
-    // OpenAI
-    const openaiKeyEl = document.querySelector('#openai-key-input');
     const openaiModelEl = document.querySelector('#openai-model-select');
-    // Anthropic
-    const anthropicKeyEl = document.querySelector('#anthropic-key-input');
     const anthropicModelEl = document.querySelector('#anthropic-model-input');
-    // Gemini
-    const geminiKeyEl = document.querySelector('#gemini-key-input');
     const geminiModelEl = document.querySelector('#gemini-model-select');
-    // Groq
-    const groqKeyEl = document.querySelector('#groq-key-input');
     const groqModelEl = document.querySelector('#groq-model-select');
-    // Custom
+    const xaiModelEl = document.querySelector('#xai-model-select');
     const customEndpointEl = document.querySelector('#custom-endpoint-input');
-    const customKeyEl = document.querySelector('#custom-key-input');
     const customModelEl = document.querySelector('#custom-model-input');
     return {
         reviewMode: activeScope?.dataset.value ?? DEFAULT_SETTINGS.reviewMode,
@@ -160,18 +193,28 @@ function readSettingsFromUI() {
             topK: ollamaTopkEl ? parseInt(ollamaTopkEl.value, 10) : AI_DEFAULTS.OLLAMA_TOP_K,
             numCtx: ollamaNumctxEl ? parseInt(ollamaNumctxEl.value, 10) : AI_DEFAULTS.OLLAMA_NUM_CTX,
         },
-        openaiApiKey: openaiKeyEl?.value.trim() || undefined,
+        // API keys: blank = keep existing, explicit clear = remove
+        openaiApiKey: readKeyFromUI('openai-key-input', 'openai', _loadedSettings.openaiApiKey),
         openaiModel: openaiModelEl?.value || DEFAULT_SETTINGS.openaiModel,
-        anthropicApiKey: anthropicKeyEl?.value.trim() || undefined,
+        anthropicApiKey: readKeyFromUI('anthropic-key-input', 'anthropic', _loadedSettings.anthropicApiKey),
         anthropicModel: anthropicModelEl?.value.trim() || DEFAULT_SETTINGS.anthropicModel,
-        geminiApiKey: geminiKeyEl?.value.trim() || undefined,
+        geminiApiKey: readKeyFromUI('gemini-key-input', 'gemini', _loadedSettings.geminiApiKey),
         geminiModel: geminiModelEl?.value || DEFAULT_SETTINGS.geminiModel,
-        groqApiKey: groqKeyEl?.value.trim() || undefined,
+        groqApiKey: readKeyFromUI('groq-key-input', 'groq', _loadedSettings.groqApiKey),
         groqModel: groqModelEl?.value || DEFAULT_SETTINGS.groqModel,
+        xaiApiKey: readKeyFromUI('xai-key-input', 'xai', _loadedSettings.xaiApiKey),
+        xaiModel: xaiModelEl?.value || DEFAULT_SETTINGS.xaiModel,
         customEndpoint: customEndpointEl?.value.trim() || undefined,
-        customApiKey: customKeyEl?.value.trim() || undefined,
+        customApiKey: readKeyFromUI('custom-key-input', 'custom', _loadedSettings.customApiKey),
         customModel: customModelEl?.value.trim() || undefined,
     };
+}
+// ─── Open settings ────────────────────────────────────────────────────────────
+async function openSettings() {
+    _clearKeys.clear(); // reset any pending clears from last session
+    const settings = await getSettings();
+    applySettingsToUI(settings);
+    setScreen('settings');
 }
 function normalizeUrl(url) {
     try {
@@ -189,7 +232,6 @@ async function getCachedResult(url) {
             const entry = cache[normalizeUrl(url)];
             if (!entry)
                 return resolve(null);
-            // Expire after 24 hours
             if (Date.now() - entry.timestamp > 24 * 60 * 60 * 1000)
                 return resolve(null);
             resolve(entry);
@@ -402,7 +444,6 @@ function renderResult(data, timestamp) {
 }
 // ─── Cancellation ────────────────────────────────────────────────────────────
 let analysisCancelled = false;
-// Stop everything and go back to the info screen.
 async function cancelAnalysis() {
     analysisCancelled = true;
     stopProgressPoll();
@@ -415,8 +456,6 @@ async function cancelAnalysis() {
     catch { /* tab may have closed */ }
     await showInfoScreen();
 }
-// Stop only the data-gathering phase; runAnalyze() will continue to AI
-// with whatever reviews have been collected so far.
 async function stopGathering() {
     stopProgressPoll();
     try {
@@ -425,8 +464,6 @@ async function stopGathering() {
         }
     }
     catch { /* tab may have closed */ }
-    // runAnalyze() is still awaiting GET_REVIEWS — the content script exits
-    // its scroll loop and returns the collected reviews, triggering Step 2.
 }
 // ─── Progress polling ─────────────────────────────────────────────────────────
 let progressPollInterval = null;
@@ -440,9 +477,7 @@ function startProgressPoll(tabId) {
                     d1.textContent = `${response.payload.count.toLocaleString()} reviews found`;
             }
         }
-        catch {
-            // tab not ready yet — ignore
-        }
+        catch { /* tab not ready yet */ }
     }, POPUP_CONFIG.PROGRESS_POLL_MS);
 }
 function stopProgressPoll() {
@@ -480,10 +515,8 @@ function stopStepTimer(step) {
         el.textContent = formatElapsed(elapsed);
 }
 function stopAllStepTimers() {
-    [1, 2].forEach((s) => {
-        if (stepIntervals[s])
-            stopStepTimer(s);
-    });
+    [1, 2].forEach((s) => { if (stepIntervals[s])
+        stopStepTimer(s); });
 }
 function setLoadingStep(step, detail) {
     const s1 = document.getElementById('step-1');
@@ -497,7 +530,7 @@ function setLoadingStep(step, detail) {
         if (d1)
             d1.textContent = detail ?? 'Scrolling through reviews…';
         if (summarizeNowBtn)
-            summarizeNowBtn.hidden = false; // show during gathering
+            summarizeNowBtn.hidden = false;
         startStepTimer(1);
     }
     else {
@@ -513,7 +546,7 @@ function setLoadingStep(step, detail) {
         if (d2)
             d2.textContent = 'Summarizing with AI…';
         if (summarizeNowBtn)
-            summarizeNowBtn.hidden = true; // hide once gathering is done
+            summarizeNowBtn.hidden = true;
         startStepTimer(2);
     }
 }
@@ -528,7 +561,6 @@ async function showInfoScreen() {
         showError('Cannot access current tab.');
         return;
     }
-    // Fast scrape — no scrolling
     try {
         const response = await sendToTab(currentTabId, { type: 'GET_BASIC_INFO' });
         if (response.type === 'BASIC_INFO') {
@@ -567,12 +599,10 @@ async function showInfoScreen() {
         }
     }
     catch {
-        // Not on a Maps page — show blank info, user can still try
         const nameEl = $('[data-field="info-place-name"]');
         if (nameEl)
             nameEl.textContent = 'Open a business on Google Maps';
     }
-    // If this place has been analyzed before, show the result immediately
     const cached = await getCachedResult(currentTabUrl);
     if (cached) {
         renderResult(cached.result, cached.timestamp);
@@ -685,13 +715,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateProviderVisibility(btn.dataset.value);
         });
     });
-    // Ollama sliders — live value display
+    // Ollama sliders — live value labels
     ['temp', 'topp', 'rp'].forEach((param) => {
         const slider = document.querySelector(`#ollama-${param}`);
         const valEl = document.getElementById(`ollama-${param}-val`);
-        slider?.addEventListener('input', () => {
-            if (valEl)
-                valEl.textContent = slider.value;
+        slider?.addEventListener('input', () => { if (valEl)
+            valEl.textContent = slider.value; });
+    });
+    // API key clear buttons — mark key for removal on next save
+    document.querySelectorAll('.clear-key-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const provider = btn.dataset.provider ?? '';
+            _clearKeys.add(provider);
+            applyKeyStatus(provider, false);
         });
     });
     // History screen
@@ -719,26 +755,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 renderResult(found.entry.result, found.entry.timestamp);
         }
     });
-    // Info screen actions
+    // Info screen
     $('[data-action="analyze"]')?.addEventListener('click', () => runAnalyze());
-    // Result screen actions
+    // Result screen
     $('[data-action="re-analyze"]')?.addEventListener('click', () => runAnalyze());
-    $('[data-action="open-settings"]')?.addEventListener('click', () => setScreen('settings'));
-    // Settings actions
+    $('[data-action="open-settings"]')?.addEventListener('click', () => openSettings());
+    // Settings
     $('[data-action="save-settings"]')?.addEventListener('click', async () => {
         const newSettings = readSettingsFromUI();
         await saveSettings(newSettings);
         await runAnalyze();
     });
     $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
-    // Loading screen controls
+    // Loading controls
     document.getElementById('summarize-now-btn')?.addEventListener('click', () => stopGathering());
     document.getElementById('cancel-btn')?.addEventListener('click', () => cancelAnalysis());
-    // Error / no-reviews actions — multiple buttons share data-action="retry"
+    // Error / no-reviews
     document.querySelectorAll('[data-action="retry"]').forEach((btn) => {
         btn.addEventListener('click', () => runAnalyze());
     });
     $('[data-action="back"]')?.addEventListener('click', () => showInfoScreen());
-    // Start by showing info
     await showInfoScreen();
 });

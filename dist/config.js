@@ -39,6 +39,8 @@ export const AI_DEFAULTS = {
     GEMINI_MODEL: 'gemini-2.0-flash',
     /** Default Groq model */
     GROQ_MODEL: 'llama-3.3-70b-versatile',
+    /** Default xAI (Grok) model */
+    XAI_MODEL: 'grok-3-mini-latest',
     // ─── Ollama local model parameters ──────────────────────────────────────────
     /** Sampling temperature — lower = more focused, higher = more creative */
     OLLAMA_TEMPERATURE: 0.7,

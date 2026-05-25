@@ -64,7 +64,6 @@
       font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.02em;
-      color: var(--text);
     }
 
     .header-text p {
@@ -73,9 +72,7 @@
       font-weight: 300;
     }
 
-    .header-actions {
-      margin-left: auto;
-    }
+    .header-actions { margin-left: auto; }
 
     .icon-btn {
       background: none;
@@ -88,20 +85,12 @@
       transition: all 0.15s;
     }
 
-    .icon-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 
     /* ── Screens ── */
     .screen { padding: 20px; }
 
-    /* Setup */
-    .setup-icon {
-      font-size: 40px;
-      text-align: center;
-      margin-bottom: 12px;
-    }
+    .setup-icon { font-size: 40px; text-align: center; margin-bottom: 12px; }
 
     .setup-title {
       font-family: 'Syne', sans-serif;
@@ -109,19 +98,6 @@
       font-weight: 700;
       text-align: center;
       margin-bottom: 6px;
-    }
-
-    .setup-desc {
-      color: var(--text-muted);
-      text-align: center;
-      font-size: 12.5px;
-      margin-bottom: 20px;
-      line-height: 1.6;
-    }
-
-    .setup-desc a {
-      color: var(--accent);
-      text-decoration: none;
     }
 
     label {
@@ -134,36 +110,9 @@
       text-transform: uppercase;
     }
 
-    input[type="password"], input[type="text"] {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
-      padding: 10px 14px;
-      outline: none;
-      transition: border-color 0.15s;
-      margin-bottom: 12px;
-    }
-
-    input:focus { border-color: var(--accent); }
-    input.error { border-color: var(--con); }
-
-    .btn {
-      width: 100%;
-      padding: 11px;
-      border: none;
-      border-radius: var(--radius-sm);
-      font-family: 'Syne', sans-serif;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-      letter-spacing: 0.03em;
-    }
-
+    /* ── Text / number inputs ── */
+    input[type="password"],
+    input[type="text"],
     input[type="number"] {
       width: 100%;
       background: var(--surface2);
@@ -178,7 +127,7 @@
       margin-bottom: 12px;
     }
 
-    input[type="number"]:focus { border-color: var(--accent); }
+    input:focus { border-color: var(--accent); }
 
     /* ── Range slider ── */
     input[type="range"] {
@@ -196,8 +145,7 @@
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 14px;
-      height: 14px;
+      width: 14px; height: 14px;
       border-radius: 50%;
       background: var(--accent);
       cursor: pointer;
@@ -208,10 +156,56 @@
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
 
-    /* ── Advanced params panel ── */
-    .advanced-details {
+    /* ── API key fields ── */
+    .key-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .key-label-row label { margin-bottom: 0; }
+
+    .key-status {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: transparent; /* hidden when empty */
+    }
+
+    .key-status.saved { color: var(--pro); }
+
+    .key-input-wrap {
+      position: relative;
       margin-bottom: 12px;
     }
+
+    .key-input-wrap input {
+      margin-bottom: 0;
+      padding-right: 36px; /* room for clear button */
+    }
+
+    .clear-key-btn {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      opacity: 0.55;
+      transition: opacity 0.15s, color 0.15s;
+      padding: 2px;
+    }
+
+    .clear-key-btn:hover { opacity: 1; color: var(--con); }
+
+    /* ── Advanced params panel ── */
+    .advanced-details { margin-bottom: 12px; }
 
     .advanced-toggle {
       font-size: 11.5px;
@@ -226,7 +220,6 @@
     }
 
     .advanced-toggle::-webkit-details-marker { display: none; }
-
     details[open] > summary.advanced-toggle { color: var(--accent); }
 
     .param-group {
@@ -281,13 +274,16 @@
       text-align: right;
     }
 
-    /* ── Scope button grid ── */
+    /* ── Scope / provider button grid ── */
     .scope-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
       margin-bottom: 16px;
     }
+
+    /* Custom provider spans full width */
+    .scope-btn[data-value="custom"] { grid-column: 1 / -1; flex-direction: row; gap: 8px; }
 
     .scope-btn {
       background: var(--surface2);
@@ -305,10 +301,7 @@
       outline: none;
     }
 
-    .scope-btn:hover {
-      border-color: var(--accent);
-      color: var(--text);
-    }
+    .scope-btn:hover { border-color: var(--accent); color: var(--text); }
 
     .scope-btn.active {
       background: rgba(108, 99, 255, 0.12);
@@ -324,10 +317,20 @@
       letter-spacing: 0.02em;
     }
 
-    .scope-sub {
-      font-size: 10px;
-      opacity: 0.65;
-      font-weight: 400;
+    .scope-sub { font-size: 10px; opacity: 0.65; font-weight: 400; }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.03em;
     }
 
     .btn-primary {
@@ -336,10 +339,7 @@
       box-shadow: 0 4px 15px var(--accent-glow);
     }
 
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px var(--accent-glow);
-    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); }
 
     .btn-secondary {
       background: var(--surface2);
@@ -348,11 +348,39 @@
       margin-top: 8px;
     }
 
-    /* Loading */
-    .loading-wrap {
-      text-align: center;
-      padding: 36px 20px;
+    /* ── Provider notes ── */
+    .provider-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      border-left: 2px solid var(--border);
     }
+
+    /* ── Select ── */
+    select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 12px;
+      appearance: none;
+      cursor: pointer;
+    }
+
+    select:focus { border-color: var(--accent); }
+
+    /* ── Loading ── */
+    .loading-wrap { text-align: center; padding: 36px 20px; }
 
     .spinner {
       width: 36px; height: 36px;
@@ -365,13 +393,7 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Step indicator */
-    .steps {
-      display: inline-flex;
-      flex-direction: column;
-      gap: 0;
-      text-align: left;
-    }
+    .steps { display: inline-flex; flex-direction: column; gap: 0; text-align: left; }
 
     .step {
       display: flex;
@@ -386,10 +408,8 @@
     .step:not(:last-child)::after {
       content: '';
       position: absolute;
-      left: 9px;
-      top: 20px;
-      width: 2px;
-      height: 100%;
+      left: 9px; top: 20px;
+      width: 2px; height: 100%;
       background: var(--border);
       transition: background 0.3s;
     }
@@ -412,15 +432,10 @@
     .step.step-active .step-dot {
       border-color: var(--accent);
       background: var(--accent);
-      box-shadow: 0 0 0 0 rgba(108, 99, 255, 0.4);
       animation: step-pulse 1.4s ease-in-out infinite;
     }
 
-    .step.step-done .step-dot {
-      border-color: var(--pro);
-      background: var(--pro);
-      color: #fff;
-    }
+    .step.step-done .step-dot { border-color: var(--pro); background: var(--pro); color: #fff; }
 
     @keyframes step-pulse {
       0%   { box-shadow: 0 0 0 0   rgba(108, 99, 255, 0.45); }
@@ -428,11 +443,7 @@
       100% { box-shadow: 0 0 0 0   rgba(108, 99, 255, 0);    }
     }
 
-    .step-label-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .step-label-row { display: flex; align-items: center; gap: 8px; }
 
     .step-label {
       font-family: 'Syne', sans-serif;
@@ -459,12 +470,11 @@
       color: var(--text-muted);
       margin-top: 3px;
       min-height: 14px;
-      transition: opacity 0.3s;
     }
 
     .step.step-pending .step-detail { opacity: 0.4; }
 
-    /* Result */
+    /* ── Result ── */
     .result-screen {
       padding: 0;
       flex: 1;
@@ -490,28 +500,10 @@
       text-overflow: ellipsis;
     }
 
-    .place-meta {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .stars {
-      color: var(--neutral);
-      font-size: 13px;
-      letter-spacing: 1px;
-    }
-
-    .rating-val {
-      font-weight: 600;
-      font-size: 13px;
-    }
-
-    .review-count {
-      color: var(--text-muted);
-      font-size: 12px;
-    }
+    .place-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .stars { color: var(--neutral); font-size: 13px; letter-spacing: 1px; }
+    .rating-val { font-weight: 600; font-size: 13px; }
+    .review-count { color: var(--text-muted); font-size: 12px; }
 
     .sentiment-badge {
       display: inline-block;
@@ -524,8 +516,8 @@
 
     .sentiment-positive { background: rgba(52, 211, 153, 0.15); color: var(--pro); }
     .sentiment-negative { background: rgba(248, 113, 113, 0.15); color: var(--con); }
-    .sentiment-neutral  { background: rgba(251, 191, 36, 0.15); color: var(--neutral); }
-    .sentiment-mixed    { background: rgba(108, 99, 255, 0.15); color: #a78bfa; }
+    .sentiment-neutral  { background: rgba(251, 191, 36, 0.15);  color: var(--neutral); }
+    .sentiment-mixed    { background: rgba(108, 99, 255, 0.15);  color: #a78bfa; }
 
     .result-body {
       padding: 16px 20px;
@@ -544,7 +536,6 @@
       border-radius: var(--radius);
       padding: 12px 14px;
       font-size: 13px;
-      color: var(--text);
       line-height: 1.65;
       margin-bottom: 16px;
       font-style: italic;
@@ -558,19 +549,14 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
 
-    .section-title.pros-title { color: var(--pro); }
-    .section-title.cons-title { color: var(--con); }
+    .section-title.pros-title   { color: var(--pro); }
+    .section-title.cons-title   { color: var(--con); }
     .section-title.themes-title { color: var(--text-muted); }
+    .section-title.staff-title  { color: var(--neutral); }
 
-    ul {
-      list-style: none;
-      margin-bottom: 16px;
-    }
+    ul { list-style: none; margin-bottom: 16px; }
 
     ul li {
       display: flex;
@@ -591,12 +577,7 @@
     .pro-bullet { color: var(--pro); }
     .con-bullet { color: var(--con); }
 
-    .themes-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 4px;
-    }
+    .themes-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 
     .theme-chip {
       background: rgba(108, 99, 255, 0.12);
@@ -618,15 +599,20 @@
       font-weight: 600;
     }
 
-    .section-title.staff-title { color: var(--neutral); }
+    /* ── Error / no-reviews ── */
+    .center-screen { text-align: center; padding: 32px 24px; }
+    .error-icon    { font-size: 36px; margin-bottom: 12px; }
 
-    /* Error / no-reviews */
-    .center-screen {
-      text-align: center;
-      padding: 32px 24px;
+    .error-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 8px;
     }
 
-    /* ── History screen ── */
+    .error-msg { color: var(--text-muted); font-size: 12.5px; line-height: 1.6; margin-bottom: 16px; }
+
+    /* ── History ── */
     .history-subheader {
       display: flex;
       align-items: center;
@@ -635,11 +621,7 @@
       border-bottom: 1px solid var(--border);
     }
 
-    .history-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 13px;
-      font-weight: 700;
-    }
+    .history-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; }
 
     .history-list {
       padding: 12px 16px;
@@ -669,7 +651,6 @@
     }
 
     .history-item:hover { border-color: var(--accent); border-left-color: inherit; }
-
     .history-item.sentiment-positive { border-left-color: var(--pro); }
     .history-item.sentiment-negative { border-left-color: var(--con); }
     .history-item.sentiment-neutral  { border-left-color: var(--neutral); }
@@ -709,51 +690,12 @@
     }
 
     .history-delete:hover { opacity: 1; color: var(--con); }
+    .history-empty { text-align: center; color: var(--text-muted); font-size: 12.5px; padding: 32px 0; }
 
-    .history-empty {
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 12.5px;
-      padding: 32px 0;
-    }
+    /* ── Info / settings screens ── */
+    .info-body { padding: 20px; display: flex; flex-direction: column; gap: 10px; }
 
-    .error-icon { font-size: 36px; margin-bottom: 12px; }
-
-    .error-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .error-msg {
-      color: var(--text-muted);
-      font-size: 12.5px;
-      line-height: 1.6;
-      margin-bottom: 16px;
-    }
-
-    .footer {
-      padding: 10px 20px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .footer-actions { display: flex; gap: 8px; }
-
-    .analyzed-at {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .place-category {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-    }
+    .place-category { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
 
     .place-info-row {
       display: flex;
@@ -767,67 +709,20 @@
     .info-icon { flex-shrink: 0; font-size: 11px; margin-top: 1px; }
     .info-text  { line-height: 1.4; }
 
-    /* ── Info screen ── */
-    .info-body {
-      padding: 20px;
+    .settings-screen { overflow-y: auto; max-height: 100%; }
+
+    /* ── Footer ── */
+    .footer {
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
       display: flex;
-      flex-direction: column;
-      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
 
-    .settings-screen {
-      overflow-y: auto;
-      max-height: 100%;
-    }
-
-    .experimental-tag {
-      display: inline-block;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 10px;
-      background: rgba(251, 191, 36, 0.12);
-      color: var(--neutral);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      margin-bottom: 10px;
-    }
-
-    .provider-note {
-      font-size: 11px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 12px;
-      padding: 8px 10px;
-      background: var(--surface2);
-      border-radius: var(--radius-sm);
-      border-left: 2px solid var(--border);
-    }
-
-    select {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
-      padding: 10px 14px;
-      outline: none;
-      transition: border-color 0.15s;
-      margin-bottom: 12px;
-      appearance: none;
-      cursor: pointer;
-    }
-
-    select:focus { border-color: var(--accent); }
-
-    .cache-note {
-      text-align: center;
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
+    .footer-actions { display: flex; gap: 8px; }
+    .analyzed-at { font-size: 11px; color: var(--text-muted); }
   </style>
 </head>
 <body>
@@ -844,7 +739,7 @@
     </div>
   </div>
 
-  <!-- History screen -->
+  <!-- ── History screen ── -->
   <div class="screen" data-screen="history" hidden>
     <div class="history-subheader">
       <button class="icon-btn" data-action="back-from-history">← Back</button>
@@ -854,7 +749,7 @@
     <div class="history-list" id="history-list"></div>
   </div>
 
-  <!-- Info screen -->
+  <!-- ── Info screen ── -->
   <div class="screen" data-screen="info" hidden>
     <div class="place-header">
       <div class="place-name" data-field="info-place-name">Loading…</div>
@@ -876,12 +771,12 @@
     </div>
   </div>
 
-  <!-- Settings screen -->
+  <!-- ── Settings screen ── -->
   <div class="screen settings-screen" data-screen="settings" hidden>
     <div class="setup-icon">⚙️</div>
     <div class="setup-title">Settings</div>
 
-    <!-- ── AI Provider ── -->
+    <!-- AI Provider -->
     <label>AI Provider</label>
     <div class="scope-grid" id="ai-provider-group">
       <button class="scope-btn" data-value="ollama">
@@ -902,11 +797,16 @@
       </button>
       <button class="scope-btn" data-value="groq">
         <span class="scope-label">Groq</span>
-        <span class="scope-sub">fast · free</span>
+        <span class="scope-sub">fast · free tier</span>
       </button>
+      <button class="scope-btn" data-value="xai">
+        <span class="scope-label">Grok</span>
+        <span class="scope-sub">xAI</span>
+      </button>
+      <!-- Custom spans full row -->
       <button class="scope-btn" data-value="custom">
         <span class="scope-label">Custom</span>
-        <span class="scope-sub">OpenAI compat</span>
+        <span class="scope-sub">OpenAI-compatible endpoint</span>
       </button>
     </div>
 
@@ -959,8 +859,14 @@
 
     <!-- ── OpenAI config ── -->
     <div id="openai-config" hidden>
-      <label for="openai-key-input">API Key</label>
-      <input type="password" id="openai-key-input" placeholder="sk-..." autocomplete="off" />
+      <div class="key-label-row">
+        <label for="openai-key-input">API Key</label>
+        <span class="key-status" id="openai-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="openai-key-input" placeholder="sk-…" autocomplete="off" />
+        <button class="clear-key-btn" id="openai-clear-key" data-provider="openai" hidden title="Remove saved key">✕</button>
+      </div>
       <label for="openai-model-select">Model</label>
       <select id="openai-model-select">
         <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; affordable</option>
@@ -972,8 +878,14 @@
 
     <!-- ── Anthropic config ── -->
     <div id="anthropic-config" hidden>
-      <label for="anthropic-key-input">API Key</label>
-      <input type="password" id="anthropic-key-input" placeholder="sk-ant-..." autocomplete="off" />
+      <div class="key-label-row">
+        <label for="anthropic-key-input">API Key</label>
+        <span class="key-status" id="anthropic-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="anthropic-key-input" placeholder="sk-ant-…" autocomplete="off" />
+        <button class="clear-key-btn" id="anthropic-clear-key" data-provider="anthropic" hidden title="Remove saved key">✕</button>
+      </div>
       <label for="anthropic-model-input">Model</label>
       <input type="text" id="anthropic-model-input"
              placeholder="e.g. claude-opus-4-5, claude-3-5-haiku-20241022" />
@@ -981,8 +893,14 @@
 
     <!-- ── Gemini config ── -->
     <div id="gemini-config" hidden>
-      <label for="gemini-key-input">API Key</label>
-      <input type="password" id="gemini-key-input" placeholder="AIza..." autocomplete="off" />
+      <div class="key-label-row">
+        <label for="gemini-key-input">API Key</label>
+        <span class="key-status" id="gemini-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="gemini-key-input" placeholder="AIza…" autocomplete="off" />
+        <button class="clear-key-btn" id="gemini-clear-key" data-provider="gemini" hidden title="Remove saved key">✕</button>
+      </div>
       <label for="gemini-model-select">Model</label>
       <select id="gemini-model-select">
         <option value="gemini-2.0-flash">gemini-2.0-flash — fast &amp; free tier</option>
@@ -994,8 +912,14 @@
 
     <!-- ── Groq config ── -->
     <div id="groq-config" hidden>
-      <label for="groq-key-input">API Key</label>
-      <input type="password" id="groq-key-input" placeholder="gsk_..." autocomplete="off" />
+      <div class="key-label-row">
+        <label for="groq-key-input">API Key</label>
+        <span class="key-status" id="groq-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="groq-key-input" placeholder="gsk_…" autocomplete="off" />
+        <button class="clear-key-btn" id="groq-clear-key" data-provider="groq" hidden title="Remove saved key">✕</button>
+      </div>
       <label for="groq-model-select">Model</label>
       <select id="groq-model-select">
         <option value="llama-3.3-70b-versatile">Llama 3.3 70B — versatile</option>
@@ -1005,18 +929,43 @@
       </select>
     </div>
 
+    <!-- ── xAI (Grok) config ── -->
+    <div id="xai-config" hidden>
+      <div class="key-label-row">
+        <label for="xai-key-input">API Key</label>
+        <span class="key-status" id="xai-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="xai-key-input" placeholder="xai-…" autocomplete="off" />
+        <button class="clear-key-btn" id="xai-clear-key" data-provider="xai" hidden title="Remove saved key">✕</button>
+      </div>
+      <label for="xai-model-select">Model</label>
+      <select id="xai-model-select">
+        <option value="grok-3-latest">grok-3 — flagship</option>
+        <option value="grok-3-mini-latest">grok-3-mini — fast &amp; affordable</option>
+        <option value="grok-2-latest">grok-2 — stable</option>
+        <option value="grok-beta">grok-beta — experimental</option>
+      </select>
+    </div>
+
     <!-- ── Custom OpenAI-compatible config ── -->
     <div id="custom-config" hidden>
       <p class="provider-note">
-        Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, Ollama (via /v1), etc.
-        For localhost endpoints, no extra setup needed.
+        Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, llama.cpp server, etc.
+        Localhost endpoints require no extra setup.
       </p>
       <label for="custom-endpoint-input">Base URL</label>
       <input type="text" id="custom-endpoint-input" placeholder="http://localhost:1234/v1" />
       <label for="custom-model-input">Model name</label>
       <input type="text" id="custom-model-input" placeholder="model identifier" />
-      <label for="custom-key-input">API Key (optional)</label>
-      <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
+      <div class="key-label-row">
+        <label for="custom-key-input">API Key (optional)</label>
+        <span class="key-status" id="custom-key-status"></span>
+      </div>
+      <div class="key-input-wrap">
+        <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
+        <button class="clear-key-btn" id="custom-clear-key" data-provider="custom" hidden title="Remove saved key">✕</button>
+      </div>
     </div>
 
     <!-- ── Review scope ── -->
@@ -1057,7 +1006,7 @@
     <button class="btn btn-secondary" data-action="cancel-settings">Cancel</button>
   </div>
 
-  <!-- Loading screen -->
+  <!-- ── Loading screen ── -->
   <div class="screen loading-wrap" data-screen="loading" hidden>
     <div class="spinner"></div>
     <div class="steps" style="margin-bottom: 20px;">
@@ -1084,17 +1033,16 @@
     </div>
     <div style="display:flex; gap:8px; justify-content:center;">
       <button class="icon-btn" id="summarize-now-btn"
-              style="padding: 6px 14px; font-size: 12px; border-color: var(--accent); color: var(--accent);">
+              style="padding:6px 14px; font-size:12px; border-color:var(--accent); color:var(--accent);">
         ⚡ Summarize Now
       </button>
-      <button class="icon-btn" id="cancel-btn"
-              style="padding: 6px 14px; font-size: 12px;">
+      <button class="icon-btn" id="cancel-btn" style="padding:6px 14px; font-size:12px;">
         ✕ Cancel
       </button>
     </div>
   </div>
 
-  <!-- Result screen -->
+  <!-- ── Result screen ── -->
   <div class="screen result-screen" data-screen="result" hidden>
     <div class="place-header">
       <div class="place-name" data-field="place-name"></div>
@@ -1133,17 +1081,18 @@
     </div>
   </div>
 
-  <!-- No reviews screen -->
+  <!-- ── No reviews screen ── -->
   <div class="screen center-screen" data-screen="no-reviews" hidden>
     <div class="error-icon">📭</div>
     <div class="error-title">No reviews found</div>
     <p class="error-msg">
-      Open a business page on <strong>Google Maps</strong> or a <strong>Google Search</strong> knowledge panel, then click the reviews section to load them.
+      Open a business page on <strong>Google Maps</strong> or a <strong>Google Search</strong>
+      knowledge panel, then click the reviews section to load them.
     </p>
     <button class="btn btn-primary" data-action="retry">Try Again</button>
   </div>
 
-  <!-- Error screen -->
+  <!-- ── Error screen ── -->
   <div class="screen center-screen" data-screen="error" hidden>
     <div class="error-icon">⚠️</div>
     <div class="error-title">Something went wrong</div>

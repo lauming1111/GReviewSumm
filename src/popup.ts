@@ -25,9 +25,20 @@ const DEFAULT_SETTINGS: ReviewSettings = {
   anthropicModel: AI_DEFAULTS.ANTHROPIC_MODEL,
   geminiModel: AI_DEFAULTS.GEMINI_MODEL,
   groqModel: AI_DEFAULTS.GROQ_MODEL,
+  xaiModel: AI_DEFAULTS.XAI_MODEL,
 };
 
-const ALL_PROVIDERS = ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'custom'] as const;
+const ALL_PROVIDERS = ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'xai', 'custom'] as const;
+
+// Default placeholder text for each provider's key input
+const KEY_PLACEHOLDERS: Record<string, string> = {
+  openai:    'sk-…',
+  anthropic: 'sk-ant-…',
+  gemini:    'AIza…',
+  groq:      'gsk_…',
+  xai:       'xai-…',
+  custom:    'Leave blank if not required',
+};
 
 async function getSettings(): Promise<ReviewSettings> {
   return new Promise((resolve) => {
@@ -43,6 +54,51 @@ async function saveSettings(settings: ReviewSettings): Promise<void> {
   });
 }
 
+// ─── Key protection ───────────────────────────────────────────────────────────
+//
+// API keys are NEVER loaded into input.value — they stay in chrome.storage only.
+// The UI shows a "✓ Saved" badge and a "✕" clear button when a key is stored.
+// Leaving the input blank on save preserves the existing key; clicking "✕" removes it.
+
+/** Providers whose keys the user explicitly cleared in this settings session. */
+const _clearKeys = new Set<string>();
+
+/** The settings that were loaded when the settings panel was last opened. */
+let _loadedSettings: ReviewSettings = { ...DEFAULT_SETTINGS };
+
+/** Render key-field status for one provider. Never populates the input value. */
+function applyKeyStatus(provider: string, hasKey: boolean): void {
+  const statusEl  = document.getElementById(`${provider}-key-status`);
+  const clearBtn  = document.getElementById(`${provider}-clear-key`) as HTMLButtonElement | null;
+  const inputEl   = document.querySelector<HTMLInputElement>(`#${provider}-key-input`);
+  const placeholder = KEY_PLACEHOLDERS[provider] ?? 'API key';
+
+  if (statusEl) {
+    statusEl.textContent = hasKey ? '✓ Saved' : '';
+    statusEl.className   = `key-status${hasKey ? ' saved' : ''}`;
+  }
+  if (clearBtn)  clearBtn.hidden = !hasKey;
+  if (inputEl) {
+    inputEl.value       = '';                                                    // never expose the key
+    inputEl.placeholder = hasKey ? 'Leave blank to keep · or enter a new key' : placeholder;
+  }
+}
+
+/**
+ * Read a provider's key from the UI.
+ * - If the user typed something → use it.
+ * - If the user explicitly clicked "✕ Clear" → return undefined (removes the key).
+ * - Otherwise (input left empty) → preserve the key from storage.
+ */
+function readKeyFromUI(inputId: string, provider: string, existingKey?: string): string | undefined {
+  if (_clearKeys.has(provider)) return undefined;
+  const el    = document.querySelector<HTMLInputElement>(`#${inputId}`);
+  const typed = el?.value.trim();
+  return typed || existingKey || undefined;
+}
+
+// ─── Provider / count field visibility ───────────────────────────────────────
+
 function updateCountFieldVisibility(mode: ReviewSettings['reviewMode']): void {
   const wrapper = document.getElementById('count-field-wrapper');
   if (wrapper) wrapper.hidden = mode === 'all';
@@ -55,7 +111,8 @@ function updateProviderVisibility(provider: ReviewSettings['aiProvider']): void 
   });
 }
 
-/** Update a range slider and its live-value label. */
+// ─── Slider helper ────────────────────────────────────────────────────────────
+
 function setSlider(inputId: string, valId: string, value: number): void {
   const input = document.querySelector<HTMLInputElement>(`#${inputId}`);
   const label = document.getElementById(valId);
@@ -63,7 +120,11 @@ function setSlider(inputId: string, valId: string, value: number): void {
   if (label) label.textContent = String(value);
 }
 
+// ─── Apply / read settings ────────────────────────────────────────────────────
+
 function applySettingsToUI(settings: ReviewSettings): void {
+  _loadedSettings = { ...settings };
+
   // Review scope buttons
   document.querySelectorAll<HTMLElement>('#review-mode-group .scope-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
@@ -83,46 +144,42 @@ function applySettingsToUI(settings: ReviewSettings): void {
   if (ollamaModelEl) ollamaModelEl.value = settings.ollamaModel ?? DEFAULT_SETTINGS.ollamaModel ?? '';
 
   const p = settings.ollamaParams ?? {};
-  setSlider('ollama-temp', 'ollama-temp-val', p.temperature  ?? AI_DEFAULTS.OLLAMA_TEMPERATURE);
-  setSlider('ollama-topp', 'ollama-topp-val', p.topP         ?? AI_DEFAULTS.OLLAMA_TOP_P);
+  setSlider('ollama-temp', 'ollama-temp-val', p.temperature   ?? AI_DEFAULTS.OLLAMA_TEMPERATURE);
+  setSlider('ollama-topp', 'ollama-topp-val', p.topP          ?? AI_DEFAULTS.OLLAMA_TOP_P);
   setSlider('ollama-rp',   'ollama-rp-val',   p.repeatPenalty ?? AI_DEFAULTS.OLLAMA_REPEAT_PENALTY);
-
   const topkEl   = document.querySelector<HTMLInputElement>('#ollama-topk');
   const numctxEl = document.querySelector<HTMLInputElement>('#ollama-numctx');
   if (topkEl)   topkEl.value   = String(p.topK   ?? AI_DEFAULTS.OLLAMA_TOP_K);
   if (numctxEl) numctxEl.value = String(p.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX);
 
-  // ── OpenAI ──────────────────────────────────────────────────────────────────
-  const openaiKeyEl = document.querySelector<HTMLInputElement>('#openai-key-input');
-  if (openaiKeyEl) openaiKeyEl.value = settings.openaiApiKey ?? '';
+  // ── Model selects / inputs (non-key) ────────────────────────────────────────
   const openaiModelEl = document.querySelector<HTMLSelectElement>('#openai-model-select');
   if (openaiModelEl) openaiModelEl.value = settings.openaiModel ?? DEFAULT_SETTINGS.openaiModel ?? 'gpt-4o-mini';
 
-  // ── Anthropic ───────────────────────────────────────────────────────────────
-  const anthropicKeyEl = document.querySelector<HTMLInputElement>('#anthropic-key-input');
-  if (anthropicKeyEl) anthropicKeyEl.value = settings.anthropicApiKey ?? '';
   const anthropicModelEl = document.querySelector<HTMLInputElement>('#anthropic-model-input');
   if (anthropicModelEl) anthropicModelEl.value = settings.anthropicModel ?? DEFAULT_SETTINGS.anthropicModel ?? '';
 
-  // ── Gemini ──────────────────────────────────────────────────────────────────
-  const geminiKeyEl = document.querySelector<HTMLInputElement>('#gemini-key-input');
-  if (geminiKeyEl) geminiKeyEl.value = settings.geminiApiKey ?? '';
   const geminiModelEl = document.querySelector<HTMLSelectElement>('#gemini-model-select');
   if (geminiModelEl) geminiModelEl.value = settings.geminiModel ?? DEFAULT_SETTINGS.geminiModel ?? 'gemini-2.0-flash';
 
-  // ── Groq ────────────────────────────────────────────────────────────────────
-  const groqKeyEl = document.querySelector<HTMLInputElement>('#groq-key-input');
-  if (groqKeyEl) groqKeyEl.value = settings.groqApiKey ?? '';
   const groqModelEl = document.querySelector<HTMLSelectElement>('#groq-model-select');
   if (groqModelEl) groqModelEl.value = settings.groqModel ?? DEFAULT_SETTINGS.groqModel ?? 'llama-3.3-70b-versatile';
 
-  // ── Custom ──────────────────────────────────────────────────────────────────
+  const xaiModelEl = document.querySelector<HTMLSelectElement>('#xai-model-select');
+  if (xaiModelEl) xaiModelEl.value = settings.xaiModel ?? DEFAULT_SETTINGS.xaiModel ?? 'grok-3-mini-latest';
+
   const customEndpointEl = document.querySelector<HTMLInputElement>('#custom-endpoint-input');
   if (customEndpointEl) customEndpointEl.value = settings.customEndpoint ?? '';
-  const customKeyEl = document.querySelector<HTMLInputElement>('#custom-key-input');
-  if (customKeyEl) customKeyEl.value = settings.customApiKey ?? '';
   const customModelEl = document.querySelector<HTMLInputElement>('#custom-model-input');
   if (customModelEl) customModelEl.value = settings.customModel ?? '';
+
+  // ── API key status (never expose the key itself) ─────────────────────────────
+  applyKeyStatus('openai',    !!settings.openaiApiKey);
+  applyKeyStatus('anthropic', !!settings.anthropicApiKey);
+  applyKeyStatus('gemini',    !!settings.geminiApiKey);
+  applyKeyStatus('groq',      !!settings.groqApiKey);
+  applyKeyStatus('xai',       !!settings.xaiApiKey);
+  applyKeyStatus('custom',    !!settings.customApiKey);
 }
 
 function readSettingsFromUI(): ReviewSettings {
@@ -130,7 +187,6 @@ function readSettingsFromUI(): ReviewSettings {
   const activeProvider = document.querySelector<HTMLElement>('#ai-provider-group .scope-btn.active');
   const countInput     = document.querySelector<HTMLInputElement>('#review-count-input');
 
-  // Ollama
   const ollamaModelEl  = document.querySelector<HTMLInputElement>('#ollama-model-input');
   const ollamaTempEl   = document.querySelector<HTMLInputElement>('#ollama-temp');
   const ollamaToppEl   = document.querySelector<HTMLInputElement>('#ollama-topp');
@@ -138,25 +194,12 @@ function readSettingsFromUI(): ReviewSettings {
   const ollamaTopkEl   = document.querySelector<HTMLInputElement>('#ollama-topk');
   const ollamaNumctxEl = document.querySelector<HTMLInputElement>('#ollama-numctx');
 
-  // OpenAI
-  const openaiKeyEl    = document.querySelector<HTMLInputElement>('#openai-key-input');
-  const openaiModelEl  = document.querySelector<HTMLSelectElement>('#openai-model-select');
-
-  // Anthropic
-  const anthropicKeyEl   = document.querySelector<HTMLInputElement>('#anthropic-key-input');
+  const openaiModelEl    = document.querySelector<HTMLSelectElement>('#openai-model-select');
   const anthropicModelEl = document.querySelector<HTMLInputElement>('#anthropic-model-input');
-
-  // Gemini
-  const geminiKeyEl   = document.querySelector<HTMLInputElement>('#gemini-key-input');
-  const geminiModelEl = document.querySelector<HTMLSelectElement>('#gemini-model-select');
-
-  // Groq
-  const groqKeyEl   = document.querySelector<HTMLInputElement>('#groq-key-input');
-  const groqModelEl = document.querySelector<HTMLSelectElement>('#groq-model-select');
-
-  // Custom
+  const geminiModelEl    = document.querySelector<HTMLSelectElement>('#gemini-model-select');
+  const groqModelEl      = document.querySelector<HTMLSelectElement>('#groq-model-select');
+  const xaiModelEl       = document.querySelector<HTMLSelectElement>('#xai-model-select');
   const customEndpointEl = document.querySelector<HTMLInputElement>('#custom-endpoint-input');
-  const customKeyEl      = document.querySelector<HTMLInputElement>('#custom-key-input');
   const customModelEl    = document.querySelector<HTMLInputElement>('#custom-model-input');
 
   return {
@@ -166,29 +209,42 @@ function readSettingsFromUI(): ReviewSettings {
 
     ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
     ollamaParams: {
-      temperature:   ollamaTempEl   ? parseFloat(ollamaTempEl.value)  : AI_DEFAULTS.OLLAMA_TEMPERATURE,
-      topP:          ollamaToppEl   ? parseFloat(ollamaToppEl.value)  : AI_DEFAULTS.OLLAMA_TOP_P,
-      repeatPenalty: ollamaRpEl     ? parseFloat(ollamaRpEl.value)    : AI_DEFAULTS.OLLAMA_REPEAT_PENALTY,
-      topK:          ollamaTopkEl   ? parseInt(ollamaTopkEl.value, 10): AI_DEFAULTS.OLLAMA_TOP_K,
+      temperature:   ollamaTempEl   ? parseFloat(ollamaTempEl.value)     : AI_DEFAULTS.OLLAMA_TEMPERATURE,
+      topP:          ollamaToppEl   ? parseFloat(ollamaToppEl.value)     : AI_DEFAULTS.OLLAMA_TOP_P,
+      repeatPenalty: ollamaRpEl     ? parseFloat(ollamaRpEl.value)       : AI_DEFAULTS.OLLAMA_REPEAT_PENALTY,
+      topK:          ollamaTopkEl   ? parseInt(ollamaTopkEl.value, 10)   : AI_DEFAULTS.OLLAMA_TOP_K,
       numCtx:        ollamaNumctxEl ? parseInt(ollamaNumctxEl.value, 10) : AI_DEFAULTS.OLLAMA_NUM_CTX,
     },
 
-    openaiApiKey: openaiKeyEl?.value.trim() || undefined,
-    openaiModel:  openaiModelEl?.value || DEFAULT_SETTINGS.openaiModel,
+    // API keys: blank = keep existing, explicit clear = remove
+    openaiApiKey:    readKeyFromUI('openai-key-input',    'openai',    _loadedSettings.openaiApiKey),
+    openaiModel:     openaiModelEl?.value    || DEFAULT_SETTINGS.openaiModel,
 
-    anthropicApiKey: anthropicKeyEl?.value.trim() || undefined,
+    anthropicApiKey: readKeyFromUI('anthropic-key-input', 'anthropic', _loadedSettings.anthropicApiKey),
     anthropicModel:  anthropicModelEl?.value.trim() || DEFAULT_SETTINGS.anthropicModel,
 
-    geminiApiKey: geminiKeyEl?.value.trim() || undefined,
-    geminiModel:  geminiModelEl?.value || DEFAULT_SETTINGS.geminiModel,
+    geminiApiKey:    readKeyFromUI('gemini-key-input',    'gemini',    _loadedSettings.geminiApiKey),
+    geminiModel:     geminiModelEl?.value    || DEFAULT_SETTINGS.geminiModel,
 
-    groqApiKey: groqKeyEl?.value.trim() || undefined,
-    groqModel:  groqModelEl?.value || DEFAULT_SETTINGS.groqModel,
+    groqApiKey:      readKeyFromUI('groq-key-input',      'groq',      _loadedSettings.groqApiKey),
+    groqModel:       groqModelEl?.value      || DEFAULT_SETTINGS.groqModel,
 
-    customEndpoint: customEndpointEl?.value.trim() || undefined,
-    customApiKey:   customKeyEl?.value.trim()      || undefined,
-    customModel:    customModelEl?.value.trim()    || undefined,
+    xaiApiKey:       readKeyFromUI('xai-key-input',       'xai',       _loadedSettings.xaiApiKey),
+    xaiModel:        xaiModelEl?.value       || DEFAULT_SETTINGS.xaiModel,
+
+    customEndpoint:  customEndpointEl?.value.trim() || undefined,
+    customApiKey:    readKeyFromUI('custom-key-input', 'custom', _loadedSettings.customApiKey),
+    customModel:     customModelEl?.value.trim() || undefined,
   };
+}
+
+// ─── Open settings ────────────────────────────────────────────────────────────
+
+async function openSettings(): Promise<void> {
+  _clearKeys.clear();                          // reset any pending clears from last session
+  const settings = await getSettings();
+  applySettingsToUI(settings);
+  setScreen('settings');
 }
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
@@ -213,7 +269,6 @@ async function getCachedResult(url: string): Promise<CacheEntry | null> {
       const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
       const entry = cache[normalizeUrl(url)];
       if (!entry) return resolve(null);
-      // Expire after 24 hours
       if (Date.now() - entry.timestamp > 24 * 60 * 60 * 1000) return resolve(null);
       resolve(entry);
     });
@@ -357,33 +412,33 @@ function sendRuntimeMessage(message: MessageType): Promise<MessageType> {
 const sentimentLabel: Record<SummaryResult['overallSentiment'], string> = {
   positive: '😊 Mostly Positive',
   negative: '😞 Mostly Negative',
-  neutral: '😐 Neutral',
-  mixed: '🤔 Mixed Reviews',
+  neutral:  '😐 Neutral',
+  mixed:    '🤔 Mixed Reviews',
 };
 
 const sentimentClass: Record<SummaryResult['overallSentiment'], string> = {
   positive: 'sentiment-positive',
   negative: 'sentiment-negative',
-  neutral: 'sentiment-neutral',
-  mixed: 'sentiment-mixed',
+  neutral:  'sentiment-neutral',
+  mixed:    'sentiment-mixed',
 };
 
 function renderStars(rating: number): string {
-  const full = Math.floor(rating);
-  const half = rating % 1 >= 0.5;
+  const full  = Math.floor(rating);
+  const half  = rating % 1 >= 0.5;
   const empty = 5 - full - (half ? 1 : 0);
   return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(empty);
 }
 
 function renderResult(data: SummaryResult, timestamp?: number): void {
-  const placeName = $('[data-field="place-name"]');
-  const sentiment = $('[data-field="sentiment"]');
-  const starsEl = $('[data-field="stars"]');
-  const ratingEl = $('[data-field="rating"]');
+  const placeName  = $('[data-field="place-name"]');
+  const sentiment  = $('[data-field="sentiment"]');
+  const starsEl    = $('[data-field="stars"]');
+  const ratingEl   = $('[data-field="rating"]');
   const reviewCount = $('[data-field="review-count"]');
-  const summaryEl = $('[data-field="summary"]');
-  const prosList = $('[data-field="pros"]');
-  const consList = $('[data-field="cons"]');
+  const summaryEl  = $('[data-field="summary"]');
+  const prosList   = $('[data-field="pros"]');
+  const consList   = $('[data-field="cons"]');
   const themesList = $('[data-field="themes"]');
   const analyzedAt = document.getElementById('analyzed-at');
 
@@ -391,13 +446,13 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
 
   if (sentiment) {
     sentiment.textContent = sentimentLabel[data.overallSentiment];
-    sentiment.className = `sentiment-badge ${sentimentClass[data.overallSentiment]}`;
+    sentiment.className   = `sentiment-badge ${sentimentClass[data.overallSentiment]}`;
   }
 
-  if (starsEl) starsEl.textContent = renderStars(data.averageRating);
-  if (ratingEl) ratingEl.textContent = `${data.averageRating} / 5`;
+  if (starsEl)    starsEl.textContent    = renderStars(data.averageRating);
+  if (ratingEl)   ratingEl.textContent   = `${data.averageRating} / 5`;
   if (reviewCount) reviewCount.textContent = `${data.totalReviews.toLocaleString()} reviews analyzed`;
-  if (summaryEl) summaryEl.textContent = data.summary;
+  if (summaryEl)  summaryEl.textContent  = data.summary;
 
   if (prosList) {
     prosList.innerHTML = data.pros
@@ -418,8 +473,8 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
   }
 
   const staffSection = document.getElementById('staff-section');
-  const staffList = $('[data-field="staff"]');
-  const staff = data.notableStaff ?? [];
+  const staffList    = $('[data-field="staff"]');
+  const staff        = data.notableStaff ?? [];
   if (staffSection) staffSection.hidden = staff.length === 0;
   if (staffList) {
     staffList.innerHTML = staff
@@ -439,7 +494,6 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
 
 let analysisCancelled = false;
 
-// Stop everything and go back to the info screen.
 async function cancelAnalysis(): Promise<void> {
   analysisCancelled = true;
   stopProgressPoll();
@@ -452,8 +506,6 @@ async function cancelAnalysis(): Promise<void> {
   await showInfoScreen();
 }
 
-// Stop only the data-gathering phase; runAnalyze() will continue to AI
-// with whatever reviews have been collected so far.
 async function stopGathering(): Promise<void> {
   stopProgressPoll();
   try {
@@ -461,8 +513,6 @@ async function stopGathering(): Promise<void> {
       await sendToTab(currentTabId, { type: 'STOP_REVIEWS' } satisfies MessageType);
     }
   } catch { /* tab may have closed */ }
-  // runAnalyze() is still awaiting GET_REVIEWS — the content script exits
-  // its scroll loop and returns the collected reviews, triggering Step 2.
 }
 
 // ─── Progress polling ─────────────────────────────────────────────────────────
@@ -477,9 +527,7 @@ function startProgressPoll(tabId: number): void {
         const d1 = document.getElementById('step-1-detail');
         if (d1) d1.textContent = `${response.payload.count.toLocaleString()} reviews found`;
       }
-    } catch {
-      // tab not ready yet — ignore
-    }
+    } catch { /* tab not ready yet */ }
   }, POPUP_CONFIG.PROGRESS_POLL_MS);
 }
 
@@ -493,7 +541,7 @@ function stopProgressPoll(): void {
 // ─── Loading steps ────────────────────────────────────────────────────────────
 
 const stepStartTimes: Partial<Record<1 | 2, number>> = {};
-const stepIntervals: Partial<Record<1 | 2, ReturnType<typeof setInterval>>> = {};
+const stepIntervals:  Partial<Record<1 | 2, ReturnType<typeof setInterval>>> = {};
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -520,9 +568,7 @@ function stopStepTimer(step: 1 | 2): void {
 }
 
 function stopAllStepTimers(): void {
-  ([1, 2] as const).forEach((s) => {
-    if (stepIntervals[s]) stopStepTimer(s);
-  });
+  ([1, 2] as const).forEach((s) => { if (stepIntervals[s]) stopStepTimer(s); });
 }
 
 function setLoadingStep(step: 1 | 2, detail?: string): void {
@@ -536,7 +582,7 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
     s1?.classList.replace('step-pending', 'step-active') || s1?.classList.add('step-active');
     s2?.classList.add('step-pending');
     if (d1) d1.textContent = detail ?? 'Scrolling through reviews…';
-    if (summarizeNowBtn) summarizeNowBtn.hidden = false; // show during gathering
+    if (summarizeNowBtn) summarizeNowBtn.hidden = false;
     startStepTimer(1);
   } else {
     stopStepTimer(1);
@@ -547,7 +593,7 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
     if (d1 && detail) d1.textContent = detail;
     s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
     if (d2) d2.textContent = 'Summarizing with AI…';
-    if (summarizeNowBtn) summarizeNowBtn.hidden = true; // hide once gathering is done
+    if (summarizeNowBtn) summarizeNowBtn.hidden = true;
     startStepTimer(2);
   }
 }
@@ -555,32 +601,28 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
 // ─── Info screen ──────────────────────────────────────────────────────────────
 
 let currentTabUrl = '';
-let currentTabId = 0;
+let currentTabId  = 0;
 
 async function showInfoScreen(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabUrl = tab.url ?? '';
-  currentTabId = tab.id ?? 0;
+  currentTabId  = tab.id ?? 0;
 
-  if (!currentTabId) {
-    showError('Cannot access current tab.');
-    return;
-  }
+  if (!currentTabId) { showError('Cannot access current tab.'); return; }
 
-  // Fast scrape — no scrolling
   try {
     const response = await sendToTab(currentTabId, { type: 'GET_BASIC_INFO' } satisfies MessageType);
     if (response.type === 'BASIC_INFO') {
       const { placeName, googleRating, googleReviewCount, category, address, phone } = response.payload;
 
-      const nameEl = $('[data-field="info-place-name"]');
+      const nameEl  = $('[data-field="info-place-name"]');
       const starsEl = $('[data-field="info-stars"]');
       const ratingEl = $('[data-field="info-rating"]');
       const countEl = $('[data-field="info-review-count"]');
-      if (nameEl) nameEl.textContent = placeName;
-      if (starsEl) starsEl.textContent = googleRating ? renderStars(googleRating) : '';
+      if (nameEl)   nameEl.textContent   = placeName;
+      if (starsEl)  starsEl.textContent  = googleRating ? renderStars(googleRating) : '';
       if (ratingEl) ratingEl.textContent = googleRating ? `${googleRating} / 5` : '';
-      if (countEl) countEl.textContent = googleReviewCount ? `${googleReviewCount.toLocaleString()} reviews` : '';
+      if (countEl)  countEl.textContent  = googleReviewCount ? `${googleReviewCount.toLocaleString()} reviews` : '';
 
       const catEl = $('[data-field="info-category"]');
       if (catEl) { catEl.textContent = category ?? ''; catEl.hidden = !category; }
@@ -600,17 +642,12 @@ async function showInfoScreen(): Promise<void> {
       }
     }
   } catch {
-    // Not on a Maps page — show blank info, user can still try
     const nameEl = $('[data-field="info-place-name"]');
     if (nameEl) nameEl.textContent = 'Open a business on Google Maps';
   }
 
-  // If this place has been analyzed before, show the result immediately
   const cached = await getCachedResult(currentTabUrl);
-  if (cached) {
-    renderResult(cached.result, cached.timestamp);
-    return;
-  }
+  if (cached) { renderResult(cached.result, cached.timestamp); return; }
 
   const viewCacheBtn = document.getElementById('view-cache-btn') as HTMLButtonElement | null;
   if (viewCacheBtn) viewCacheBtn.hidden = true;
@@ -629,13 +666,10 @@ async function runAnalyze(): Promise<void> {
   if (!currentTabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     currentTabUrl = tab.url ?? '';
-    currentTabId = tab.id ?? 0;
+    currentTabId  = tab.id ?? 0;
   }
 
-  if (!currentTabId) {
-    showError('Cannot access current tab.');
-    return;
-  }
+  if (!currentTabId) { showError('Cannot access current tab.'); return; }
 
   startProgressPoll(currentTabId);
 
@@ -663,8 +697,8 @@ async function runAnalyze(): Promise<void> {
   stopProgressPoll();
 
   if (analysisCancelled) return;
-  if (reviewsResponse.type === 'NO_REVIEWS') { setScreen('no-reviews'); return; }
-  if (reviewsResponse.type === 'ERROR') { showError(reviewsResponse.payload); return; }
+  if (reviewsResponse.type === 'NO_REVIEWS')  { setScreen('no-reviews'); return; }
+  if (reviewsResponse.type === 'ERROR')        { showError(reviewsResponse.payload); return; }
 
   if (reviewsResponse.type === 'REVIEWS_DATA') {
     const { reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload;
@@ -724,12 +758,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Ollama sliders — live value display
+  // Ollama sliders — live value labels
   (['temp', 'topp', 'rp'] as const).forEach((param) => {
     const slider = document.querySelector<HTMLInputElement>(`#ollama-${param}`);
     const valEl  = document.getElementById(`ollama-${param}-val`);
-    slider?.addEventListener('input', () => {
-      if (valEl) valEl.textContent = slider.value;
+    slider?.addEventListener('input', () => { if (valEl) valEl.textContent = slider.value; });
+  });
+
+  // API key clear buttons — mark key for removal on next save
+  document.querySelectorAll<HTMLElement>('.clear-key-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const provider = btn.dataset.provider ?? '';
+      _clearKeys.add(provider);
+      applyKeyStatus(provider, false);
     });
   });
 
@@ -744,7 +785,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('history-list')?.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
-
     const deleteBtn = target.closest<HTMLElement>('.history-delete');
     if (deleteBtn) {
       e.stopPropagation();
@@ -752,7 +792,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       showHistory();
       return;
     }
-
     const item = target.closest<HTMLElement>('.history-item');
     if (item) {
       const key = decodeURIComponent(item.dataset.key ?? '');
@@ -762,32 +801,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Info screen actions
+  // Info screen
   $('[data-action="analyze"]')?.addEventListener('click', () => runAnalyze());
 
-  // Result screen actions
+  // Result screen
   $('[data-action="re-analyze"]')?.addEventListener('click', () => runAnalyze());
-  $('[data-action="open-settings"]')?.addEventListener('click', () => setScreen('settings'));
+  $('[data-action="open-settings"]')?.addEventListener('click', () => openSettings());
 
-  // Settings actions
+  // Settings
   $('[data-action="save-settings"]')?.addEventListener('click', async () => {
     const newSettings = readSettingsFromUI();
     await saveSettings(newSettings);
     await runAnalyze();
   });
-
   $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
 
-  // Loading screen controls
+  // Loading controls
   document.getElementById('summarize-now-btn')?.addEventListener('click', () => stopGathering());
   document.getElementById('cancel-btn')?.addEventListener('click', () => cancelAnalysis());
 
-  // Error / no-reviews actions — multiple buttons share data-action="retry"
+  // Error / no-reviews
   document.querySelectorAll<HTMLElement>('[data-action="retry"]').forEach((btn) => {
     btn.addEventListener('click', () => runAnalyze());
   });
   $('[data-action="back"]')?.addEventListener('click', () => showInfoScreen());
 
-  // Start by showing info
   await showInfoScreen();
 });

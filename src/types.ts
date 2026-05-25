@@ -29,7 +29,7 @@ export interface OllamaParams {
 export interface ReviewSettings {
   reviewMode: 'recent' | 'all' | '1m' | '3m' | '6m' | '1y';
   reviewCount: number;
-  aiProvider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'custom';
+  aiProvider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'xai' | 'custom';
   // Ollama
   ollamaModel?: string;
   ollamaParams?: OllamaParams;
@@ -45,6 +45,9 @@ export interface ReviewSettings {
   // Groq
   groqApiKey?: string;
   groqModel?: string;
+  // xAI (Grok)
+  xaiApiKey?: string;
+  xaiModel?: string;
   // Custom OpenAI-compatible endpoint
   customEndpoint?: string;
   customApiKey?: string;

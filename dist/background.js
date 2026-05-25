@@ -283,6 +283,35 @@ async function summarizeWithGroq(reviews, placeName, settings, googleRating, goo
     const raw = data.choices?.[0]?.message?.content ?? '';
     return buildResult(parseAIResponse(raw), placeName, avgRating, googleReviewCount ?? reviews.length);
 }
+// ─── xAI (Grok) ──────────────────────────────────────────────────────────────
+async function summarizeWithXAI(reviews, placeName, settings, googleRating, googleReviewCount) {
+    if (!settings.xaiApiKey) {
+        throw new Error('xAI API key is not set. Go to ⚙ Settings and add your key.');
+    }
+    const selected = filterReviews(reviews, settings);
+    const avgRating = computeAvg(selected, googleRating);
+    const model = settings.xaiModel ?? AI_DEFAULTS.XAI_MODEL;
+    console.log(`[GReviewSumm] xAI/Grok model: ${model}, reviews: ${selected.length}`);
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${settings.xaiApiKey}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
+            temperature: 0.3,
+        }),
+    });
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`xAI API error ${response.status}: ${body}`);
+    }
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content ?? '';
+    return buildResult(parseAIResponse(raw), placeName, avgRating, googleReviewCount ?? reviews.length);
+}
 // ─── Custom OpenAI-compatible endpoint ────────────────────────────────────────
 async function summarizeWithCustom(reviews, placeName, settings, googleRating, googleReviewCount) {
     if (!settings.customEndpoint) {
@@ -335,6 +364,7 @@ const PROVIDER_FN = {
     anthropic: summarizeWithAnthropic,
     gemini: summarizeWithGemini,
     groq: summarizeWithGroq,
+    xai: summarizeWithXAI,
     custom: summarizeWithCustom,
 };
 // ─── Message listener ─────────────────────────────────────────────────────────
