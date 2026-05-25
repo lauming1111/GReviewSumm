@@ -1,5 +1,6 @@
 import type { MessageType, ReviewSettings, SummaryResult } from './types.js';
 import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS } from './config.js';
+import { encryptApiKey, decryptApiKey } from './crypto.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
@@ -40,17 +41,48 @@ const KEY_PLACEHOLDERS: Record<string, string> = {
   custom:    'Leave blank if not required',
 };
 
+/** Fields in ReviewSettings that contain API keys and must be encrypted at rest. */
+const API_KEY_FIELDS = [
+  'openaiApiKey', 'anthropicApiKey', 'geminiApiKey',
+  'groqApiKey', 'xaiApiKey', 'customApiKey',
+] as const satisfies ReadonlyArray<keyof ReviewSettings>;
+
 async function getSettings(): Promise<ReviewSettings> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['gReviewSummSettings'], (result) => {
-      resolve((result.gReviewSummSettings as ReviewSettings) ?? DEFAULT_SETTINGS);
+    chrome.storage.local.get(['gReviewSummSettings'], async (result) => {
+      const stored = (result.gReviewSummSettings ?? DEFAULT_SETTINGS) as ReviewSettings;
+      const settings: ReviewSettings = { ...stored };
+
+      for (const field of API_KEY_FIELDS) {
+        const val = stored[field];
+        if (typeof val === 'string' && val.length > 0) {
+          try {
+            (settings as unknown as Record<string, unknown>)[field] = await decryptApiKey(val);
+          } catch {
+            // Salt was reset or blob is corrupt — clear this key so the user re-enters it
+            console.warn(`[GReviewSumm] Could not decrypt ${field} — clearing it.`);
+            (settings as unknown as Record<string, unknown>)[field] = undefined;
+          }
+        }
+      }
+
+      resolve(settings);
     });
   });
 }
 
 async function saveSettings(settings: ReviewSettings): Promise<void> {
+  const stored: ReviewSettings = { ...settings };
+
+  for (const field of API_KEY_FIELDS) {
+    const val = settings[field];
+    if (typeof val === 'string' && val.length > 0) {
+      (stored as unknown as Record<string, unknown>)[field] = await encryptApiKey(val);
+    }
+  }
+
   return new Promise((resolve) => {
-    chrome.storage.local.set({ gReviewSummSettings: settings }, resolve);
+    chrome.storage.local.set({ gReviewSummSettings: stored }, resolve);
   });
 }
 
