@@ -19,6 +19,10 @@ export interface SummaryResult {
 export interface ReviewSettings {
   reviewMode: 'recent' | 'all' | '1m' | '3m' | '6m' | '1y';
   reviewCount: number;
+  aiProvider: 'ollama' | 'openai';
+  ollamaModel?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
 }
 
 export type MessageType =

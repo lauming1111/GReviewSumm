@@ -1,4 +1,4 @@
-import type { MessageType, SummaryResult } from './types.js';
+import type { MessageType, ReviewSettings, SummaryResult } from './types.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
@@ -14,14 +14,12 @@ function setScreen(name: 'info' | 'history' | 'settings' | 'loading' | 'result' 
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-interface ReviewSettings {
-  reviewMode: 'recent' | 'all' | '1m' | '3m' | '6m' | '1y';
-  reviewCount: number;
-}
-
 const DEFAULT_SETTINGS: ReviewSettings = {
   reviewMode: 'all',
   reviewCount: 1000,
+  aiProvider: 'ollama',
+  ollamaModel: 'llama3.2:latest',
+  openaiModel: 'gpt-4o-mini',
 };
 
 async function getSettings(): Promise<ReviewSettings> {
@@ -43,21 +41,54 @@ function updateCountFieldVisibility(mode: ReviewSettings['reviewMode']): void {
   if (wrapper) wrapper.hidden = mode === 'all';
 }
 
+function updateProviderVisibility(provider: ReviewSettings['aiProvider']): void {
+  const ollamaEl = document.getElementById('ollama-config');
+  const openaiEl = document.getElementById('openai-config');
+  if (ollamaEl) ollamaEl.hidden = provider !== 'ollama';
+  if (openaiEl) openaiEl.hidden = provider !== 'openai';
+}
+
 function applySettingsToUI(settings: ReviewSettings): void {
-  document.querySelectorAll<HTMLElement>('.scope-btn').forEach((btn) => {
+  // Review scope buttons
+  document.querySelectorAll<HTMLElement>('#review-mode-group .scope-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
   });
   const countInput = document.querySelector<HTMLInputElement>('#review-count-input');
   if (countInput) countInput.value = String(settings.reviewCount);
   updateCountFieldVisibility(settings.reviewMode);
+
+  // Provider buttons
+  document.querySelectorAll<HTMLElement>('#ai-provider-group .scope-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.value === (settings.aiProvider ?? 'ollama'));
+  });
+  updateProviderVisibility(settings.aiProvider ?? 'ollama');
+
+  // Provider-specific fields
+  const ollamaModelEl = document.querySelector<HTMLInputElement>('#ollama-model-input');
+  if (ollamaModelEl) ollamaModelEl.value = settings.ollamaModel ?? DEFAULT_SETTINGS.ollamaModel ?? '';
+
+  const openaiKeyEl = document.querySelector<HTMLInputElement>('#openai-key-input');
+  if (openaiKeyEl) openaiKeyEl.value = settings.openaiApiKey ?? '';
+
+  const openaiModelEl = document.querySelector<HTMLSelectElement>('#openai-model-select');
+  if (openaiModelEl) openaiModelEl.value = settings.openaiModel ?? DEFAULT_SETTINGS.openaiModel ?? 'gpt-4o-mini';
 }
 
 function readSettingsFromUI(): ReviewSettings {
-  const activeBtn = document.querySelector<HTMLElement>('.scope-btn.active');
+  const activeScope = document.querySelector<HTMLElement>('#review-mode-group .scope-btn.active');
+  const activeProvider = document.querySelector<HTMLElement>('#ai-provider-group .scope-btn.active');
   const countInput = document.querySelector<HTMLInputElement>('#review-count-input');
+  const ollamaModelEl = document.querySelector<HTMLInputElement>('#ollama-model-input');
+  const openaiKeyEl = document.querySelector<HTMLInputElement>('#openai-key-input');
+  const openaiModelEl = document.querySelector<HTMLSelectElement>('#openai-model-select');
+
   return {
-    reviewMode: (activeBtn?.dataset.value as ReviewSettings['reviewMode']) ?? DEFAULT_SETTINGS.reviewMode,
+    reviewMode: (activeScope?.dataset.value as ReviewSettings['reviewMode']) ?? DEFAULT_SETTINGS.reviewMode,
     reviewCount: Math.max(10, Number(countInput?.value ?? DEFAULT_SETTINGS.reviewCount)),
+    aiProvider: (activeProvider?.dataset.value as ReviewSettings['aiProvider']) ?? 'ollama',
+    ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
+    openaiApiKey: openaiKeyEl?.value.trim() || undefined,
+    openaiModel: openaiModelEl?.value || DEFAULT_SETTINGS.openaiModel,
   };
 }
 
@@ -539,12 +570,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settings = await getSettings();
   applySettingsToUI(settings);
 
-  // Scope button selection
-  document.querySelectorAll<HTMLElement>('.scope-btn').forEach((btn) => {
+  // Review scope buttons
+  document.querySelectorAll<HTMLElement>('#review-mode-group .scope-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.scope-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('#review-mode-group .scope-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       updateCountFieldVisibility(btn.dataset.value as ReviewSettings['reviewMode']);
+    });
+  });
+
+  // AI provider buttons
+  document.querySelectorAll<HTMLElement>('#ai-provider-group .scope-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#ai-provider-group .scope-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      updateProviderVisibility(btn.dataset.value as ReviewSettings['aiProvider']);
     });
   });
 
@@ -596,8 +636,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Stop button
   document.getElementById('stop-btn')?.addEventListener('click', () => stopAnalysis());
 
-  // Error / no-reviews actions
-  $('[data-action="retry"]')?.addEventListener('click', () => runAnalyze());
+  // Error / no-reviews actions — multiple buttons share data-action="retry"
+  document.querySelectorAll<HTMLElement>('[data-action="retry"]').forEach((btn) => {
+    btn.addEventListener('click', () => runAnalyze());
+  });
   $('[data-action="back"]')?.addEventListener('click', () => showInfoScreen());
 
   // Start by showing info

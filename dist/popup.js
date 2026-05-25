@@ -7,9 +7,13 @@ function setScreen(name) {
         el.hidden = el.dataset.screen !== name;
     });
 }
+// ─── Settings ─────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
     reviewMode: 'all',
     reviewCount: 1000,
+    aiProvider: 'ollama',
+    ollamaModel: 'llama3.2:latest',
+    openaiModel: 'gpt-4o-mini',
 };
 async function getSettings() {
     return new Promise((resolve) => {
@@ -28,21 +32,53 @@ function updateCountFieldVisibility(mode) {
     if (wrapper)
         wrapper.hidden = mode === 'all';
 }
+function updateProviderVisibility(provider) {
+    const ollamaEl = document.getElementById('ollama-config');
+    const openaiEl = document.getElementById('openai-config');
+    if (ollamaEl)
+        ollamaEl.hidden = provider !== 'ollama';
+    if (openaiEl)
+        openaiEl.hidden = provider !== 'openai';
+}
 function applySettingsToUI(settings) {
-    document.querySelectorAll('.scope-btn').forEach((btn) => {
+    // Review scope buttons
+    document.querySelectorAll('#review-mode-group .scope-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.value === settings.reviewMode);
     });
     const countInput = document.querySelector('#review-count-input');
     if (countInput)
         countInput.value = String(settings.reviewCount);
     updateCountFieldVisibility(settings.reviewMode);
+    // Provider buttons
+    document.querySelectorAll('#ai-provider-group .scope-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.value === (settings.aiProvider ?? 'ollama'));
+    });
+    updateProviderVisibility(settings.aiProvider ?? 'ollama');
+    // Provider-specific fields
+    const ollamaModelEl = document.querySelector('#ollama-model-input');
+    if (ollamaModelEl)
+        ollamaModelEl.value = settings.ollamaModel ?? DEFAULT_SETTINGS.ollamaModel ?? '';
+    const openaiKeyEl = document.querySelector('#openai-key-input');
+    if (openaiKeyEl)
+        openaiKeyEl.value = settings.openaiApiKey ?? '';
+    const openaiModelEl = document.querySelector('#openai-model-select');
+    if (openaiModelEl)
+        openaiModelEl.value = settings.openaiModel ?? DEFAULT_SETTINGS.openaiModel ?? 'gpt-4o-mini';
 }
 function readSettingsFromUI() {
-    const activeBtn = document.querySelector('.scope-btn.active');
+    const activeScope = document.querySelector('#review-mode-group .scope-btn.active');
+    const activeProvider = document.querySelector('#ai-provider-group .scope-btn.active');
     const countInput = document.querySelector('#review-count-input');
+    const ollamaModelEl = document.querySelector('#ollama-model-input');
+    const openaiKeyEl = document.querySelector('#openai-key-input');
+    const openaiModelEl = document.querySelector('#openai-model-select');
     return {
-        reviewMode: activeBtn?.dataset.value ?? DEFAULT_SETTINGS.reviewMode,
+        reviewMode: activeScope?.dataset.value ?? DEFAULT_SETTINGS.reviewMode,
         reviewCount: Math.max(10, Number(countInput?.value ?? DEFAULT_SETTINGS.reviewCount)),
+        aiProvider: activeProvider?.dataset.value ?? 'ollama',
+        ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
+        openaiApiKey: openaiKeyEl?.value.trim() || undefined,
+        openaiModel: openaiModelEl?.value || DEFAULT_SETTINGS.openaiModel,
     };
 }
 function normalizeUrl(url) {
@@ -502,12 +538,20 @@ function showError(message) {
 document.addEventListener('DOMContentLoaded', async () => {
     const settings = await getSettings();
     applySettingsToUI(settings);
-    // Scope button selection
-    document.querySelectorAll('.scope-btn').forEach((btn) => {
+    // Review scope buttons
+    document.querySelectorAll('#review-mode-group .scope-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.scope-btn').forEach((b) => b.classList.remove('active'));
+            document.querySelectorAll('#review-mode-group .scope-btn').forEach((b) => b.classList.remove('active'));
             btn.classList.add('active');
             updateCountFieldVisibility(btn.dataset.value);
+        });
+    });
+    // AI provider buttons
+    document.querySelectorAll('#ai-provider-group .scope-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#ai-provider-group .scope-btn').forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            updateProviderVisibility(btn.dataset.value);
         });
     });
     // History screen
@@ -549,8 +593,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
     // Stop button
     document.getElementById('stop-btn')?.addEventListener('click', () => stopAnalysis());
-    // Error / no-reviews actions
-    $('[data-action="retry"]')?.addEventListener('click', () => runAnalyze());
+    // Error / no-reviews actions — multiple buttons share data-action="retry"
+    document.querySelectorAll('[data-action="retry"]').forEach((btn) => {
+        btn.addEventListener('click', () => runAnalyze());
+    });
     $('[data-action="back"]')?.addEventListener('click', () => showInfoScreen());
     // Start by showing info
     await showInfoScreen();

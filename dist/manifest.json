@@ -12,7 +12,8 @@
     "https://www.google.com/*",
     "https://maps.google.com/*",
     "http://localhost:11434/*",
-    "http://127.0.0.1:11434/*"
+    "http://127.0.0.1:11434/*",
+    "https://api.openai.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

@@ -664,6 +664,42 @@
       gap: 10px;
     }
 
+    .settings-screen {
+      overflow-y: auto;
+      max-height: 100%;
+    }
+
+    .experimental-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 10px;
+      background: rgba(251, 191, 36, 0.12);
+      color: var(--neutral);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 12px;
+      appearance: none;
+      cursor: pointer;
+    }
+
+    select:focus { border-color: var(--accent); }
+
     .cache-note {
       text-align: center;
       font-size: 11px;
@@ -719,10 +755,37 @@
   </div>
 
   <!-- Settings screen -->
-  <div class="screen" data-screen="settings" hidden>
+  <div class="screen settings-screen" data-screen="settings" hidden>
     <div class="setup-icon">⚙️</div>
-    <div class="setup-title">Review selection</div>
-    <p class="setup-desc">Choose how many reviews to summarize and whether to focus on recent or timeline-based comments.</p>
+    <div class="setup-title">Settings</div>
+
+    <label>AI Provider</label>
+    <div class="scope-grid" style="grid-template-columns: repeat(2,1fr);" id="ai-provider-group">
+      <button class="scope-btn" data-value="ollama">
+        <span class="scope-label">Ollama</span>
+        <span class="scope-sub">local · free</span>
+      </button>
+      <button class="scope-btn" data-value="openai">
+        <span class="scope-label">OpenAI</span>
+        <span class="scope-sub">ChatGPT · API</span>
+      </button>
+    </div>
+
+    <div id="ollama-config">
+      <label for="ollama-model-input">Model name</label>
+      <input type="text" id="ollama-model-input" placeholder="e.g. llama3, mistral, gpt-oss:latest" />
+    </div>
+
+    <div id="openai-config" hidden>
+      <div class="experimental-tag">⚠ Experimental</div>
+      <label for="openai-key-input">API Key</label>
+      <input type="password" id="openai-key-input" placeholder="sk-..." autocomplete="off" />
+      <label for="openai-model-select">Model</label>
+      <select id="openai-model-select">
+        <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; affordable</option>
+        <option value="gpt-4o">gpt-4o — most capable</option>
+      </select>
+    </div>
 
     <label>Review scope</label>
     <div class="scope-grid" id="review-mode-group">
