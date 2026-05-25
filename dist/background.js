@@ -90,13 +90,15 @@ Respond ONLY with a valid JSON object (no markdown, no preamble) in this exact s
   "pros": ["specific positive point 1", "specific positive point 2", "...up to 6"],
   "cons": ["specific negative point 1", "specific negative point 2", "...up to 6"],
   "topThemes": ["theme1", "theme2", "theme3"],
-  "overallSentiment": "positive" | "neutral" | "negative" | "mixed"
+  "overallSentiment": "positive" | "neutral" | "negative" | "mixed",
+  "notableStaff": ["FirstName", "..."]
 }
 
 Rules:
 - pros and cons must be specific, actionable insights drawn from actual review content
 - topThemes are 1–3 word topics that appear most often (e.g. "parking", "wait times", "staff")
 - overallSentiment reflects the general tone across all reviews
+- notableStaff: list only real person names (first name or full name) of employees or staff who are mentioned by name in at least 2 different reviews; return [] if none found
 - Be concise but informative`;
 }
 function parseAIResponse(raw) {
@@ -113,6 +115,7 @@ function buildResult(parsed, placeName, avgRating, totalReviews) {
         cons: parsed.cons ?? [],
         summary: parsed.summary ?? '',
         topThemes: parsed.topThemes ?? [],
+        notableStaff: parsed.notableStaff ?? [],
     };
 }
 // ─── Ollama ───────────────────────────────────────────────────────────────────

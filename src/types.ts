@@ -14,6 +14,8 @@ export interface SummaryResult {
   cons: string[];
   summary: string;
   topThemes: string[];
+  /** Staff/employee first names mentioned by name in multiple reviews. */
+  notableStaff: string[];
 }
 
 export interface ReviewSettings {

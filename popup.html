@@ -509,6 +509,18 @@
       font-weight: 500;
     }
 
+    .staff-chip {
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      color: var(--neutral);
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .section-title.staff-title { color: var(--neutral); }
+
     /* Error / no-reviews */
     .center-screen {
       text-align: center;
@@ -884,6 +896,11 @@
 
       <div class="section-title themes-title">◆ Top themes</div>
       <div class="themes-row" data-field="themes"></div>
+
+      <div id="staff-section" hidden>
+        <div class="section-title staff-title" style="margin-top:12px;">★ Frequently mentioned staff</div>
+        <div class="themes-row" data-field="staff"></div>
+      </div>
     </div>
 
     <div class="footer">

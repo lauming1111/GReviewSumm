@@ -293,6 +293,16 @@ function renderResult(data, timestamp) {
             .map((t) => `<span class="theme-chip">${t}</span>`)
             .join('');
     }
+    const staffSection = document.getElementById('staff-section');
+    const staffList = $('[data-field="staff"]');
+    const staff = data.notableStaff ?? [];
+    if (staffSection)
+        staffSection.hidden = staff.length === 0;
+    if (staffList) {
+        staffList.innerHTML = staff
+            .map((name) => `<span class="staff-chip">★ ${name}</span>`)
+            .join('');
+    }
     if (analyzedAt) {
         analyzedAt.textContent = timestamp ? `Analyzed ${timeAgo(timestamp)}` : '';
     }
