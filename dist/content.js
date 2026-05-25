@@ -17,7 +17,7 @@ async function ensureReviewsTabOpen(tabOpenWaitMs) {
     });
     if (reviewsBtn) {
         reviewsBtn.click();
-        console.log('[Review Lens] Clicked Reviews tab, waiting for cards…');
+        console.log('[GReviewSumm] Clicked Reviews tab, waiting for cards…');
         await sleep(tabOpenWaitMs);
     }
 }
@@ -48,7 +48,7 @@ function clickMoreReviewsButton() {
             keywords.test(el.getAttribute('aria-label') ?? '');
     });
     if (btn) {
-        console.log(`[Review Lens] Clicking "More reviews" button: "${btn.textContent?.trim()}"`);
+        console.log(`[GReviewSumm] Clicking "More reviews" button: "${btn.textContent?.trim()}"`);
         btn.click();
         return true;
     }
@@ -262,7 +262,7 @@ const DEFAULT_SCROLL_CONFIG = {
 async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
     await ensureReviewsTabOpen(cfg.tabOpenWaitMs);
     if (getReviewCards().length === 0) {
-        console.log('[Review Lens] No review cards found after tab open attempt');
+        console.log('[GReviewSumm] No review cards found after tab open attempt');
         return { reviews: [], placeName: document.title };
     }
     const seenKeys = new Set();
@@ -293,7 +293,7 @@ async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
         // Smart wait: exit as soon as new reviews appear (poll) or timeout
         await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.scrollWaitMs);
         const added = collectVisible();
-        console.log(`[Review Lens] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
+        console.log(`[GReviewSumm] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
         if (added === 0) {
             const clicked = clickMoreReviewsButton();
             if (clicked) {
@@ -310,7 +310,7 @@ async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
             stableRounds = 0;
         }
     }
-    console.log(`[Review Lens] Done: ${allReviews.length} unique reviews`);
+    console.log(`[GReviewSumm] Done: ${allReviews.length} unique reviews`);
     const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
     const placeNameEl = document.querySelector('h1.DUwDvf') ??
         document.querySelector('h1[class*="fontHeadlineLarge"]') ??

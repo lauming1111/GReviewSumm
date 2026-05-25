@@ -25,15 +25,15 @@ const DEFAULT_SETTINGS: ReviewSettings = {
 
 async function getSettings(): Promise<ReviewSettings> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['reviewLensSettings'], (result) => {
-      resolve((result.reviewLensSettings as ReviewSettings) ?? DEFAULT_SETTINGS);
+    chrome.storage.local.get(['gReviewSummSettings'], (result) => {
+      resolve((result.gReviewSummSettings as ReviewSettings) ?? DEFAULT_SETTINGS);
     });
   });
 }
 
 async function saveSettings(settings: ReviewSettings): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ reviewLensSettings: settings }, resolve);
+    chrome.storage.local.set({ gReviewSummSettings: settings }, resolve);
   });
 }
 
@@ -111,8 +111,8 @@ function normalizeUrl(url: string): string {
 
 async function getCachedResult(url: string): Promise<CacheEntry | null> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['reviewLensCache'], (data) => {
-      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+    chrome.storage.local.get(['gReviewSummCache'], (data) => {
+      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
       const entry = cache[normalizeUrl(url)];
       if (!entry) return resolve(null);
       // Expire after 24 hours
@@ -124,10 +124,10 @@ async function getCachedResult(url: string): Promise<CacheEntry | null> {
 
 async function setCachedResult(url: string, result: SummaryResult): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['reviewLensCache'], (data) => {
-      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+    chrome.storage.local.get(['gReviewSummCache'], (data) => {
+      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
       cache[normalizeUrl(url)] = { result, timestamp: Date.now() };
-      chrome.storage.local.set({ reviewLensCache: cache }, resolve);
+      chrome.storage.local.set({ gReviewSummCache: cache }, resolve);
     });
   });
 }
@@ -144,8 +144,8 @@ function timeAgo(timestamp: number): string {
 
 async function getAllCacheEntries(): Promise<Array<{ key: string; entry: CacheEntry }>> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['reviewLensCache'], (data) => {
-      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+    chrome.storage.local.get(['gReviewSummCache'], (data) => {
+      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
       const entries = Object.entries(cache)
         .map(([key, entry]) => ({ key, entry }))
         .sort((a, b) => b.entry.timestamp - a.entry.timestamp);
@@ -156,17 +156,17 @@ async function getAllCacheEntries(): Promise<Array<{ key: string; entry: CacheEn
 
 async function deleteHistoryEntry(key: string): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['reviewLensCache'], (data) => {
-      const cache = (data.reviewLensCache ?? {}) as Record<string, CacheEntry>;
+    chrome.storage.local.get(['gReviewSummCache'], (data) => {
+      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
       delete cache[key];
-      chrome.storage.local.set({ reviewLensCache: cache }, resolve);
+      chrome.storage.local.set({ gReviewSummCache: cache }, resolve);
     });
   });
 }
 
 async function clearAllHistory(): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.remove(['reviewLensCache'], resolve);
+    chrome.storage.local.remove(['gReviewSummCache'], resolve);
   });
 }
 
@@ -557,7 +557,7 @@ async function runAnalyze(): Promise<void> {
     } satisfies MessageType);
   } catch (err) {
     stopProgressPoll();
-    console.error('[Review Lens] Message error:', err);
+    console.error('[GReviewSumm] Message error:', err);
     showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
     return;
   }
@@ -570,7 +570,7 @@ async function runAnalyze(): Promise<void> {
 
   if (reviewsResponse.type === 'REVIEWS_DATA') {
     const { reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload;
-    console.log(`[Review Lens] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
+    console.log(`[GReviewSumm] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
     setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
 
     let summaryResponse: MessageType;
@@ -580,7 +580,7 @@ async function runAnalyze(): Promise<void> {
         payload: { reviews, placeName, settings, googleRating, googleReviewCount },
       } satisfies MessageType);
     } catch (err) {
-      console.error('[Review Lens] Background error:', err);
+      console.error('[GReviewSumm] Background error:', err);
       showError(`Failed to summarize: ${err}`);
       return;
     }

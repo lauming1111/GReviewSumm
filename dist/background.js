@@ -136,7 +136,7 @@ async function summarizeWithOllama(reviews, placeName, settings, googleRating, g
     const avgRating = googleRating ?? computed;
     await checkOllama();
     const model = settings.ollamaModel ?? 'gpt-oss:latest';
-    console.log(`[Review Lens] Ollama model: ${model}, reviews: ${selected.length}`);
+    console.log(`[GReviewSumm] Ollama model: ${model}, reviews: ${selected.length}`);
     const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -158,7 +158,7 @@ async function summarizeWithOpenAI(reviews, placeName, settings, googleRating, g
         (selected.filter((r) => r.rating > 0).length || 1);
     const avgRating = googleRating ?? computed;
     const model = settings.openaiModel ?? 'gpt-4o-mini';
-    console.log(`[Review Lens] OpenAI model: ${model}, reviews: ${selected.length}`);
+    console.log(`[GReviewSumm] OpenAI model: ${model}, reviews: ${selected.length}`);
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -190,7 +190,7 @@ async function withRetry(fn, maxAttempts = AI_DEFAULTS.MAX_RETRIES) {
         catch (err) {
             if (!(err instanceof SyntaxError) || attempt >= maxAttempts)
                 throw err;
-            console.warn(`[Review Lens] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
+            console.warn(`[GReviewSumm] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
         }
     }
 }
@@ -198,7 +198,7 @@ async function withRetry(fn, maxAttempts = AI_DEFAULTS.MAX_RETRIES) {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'SUMMARIZE') {
         const { reviews, placeName, settings, googleRating, googleReviewCount } = message.payload;
-        console.log(`[Review Lens] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
+        console.log(`[GReviewSumm] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
         const summarize = settings.aiProvider === 'openai' ? summarizeWithOpenAI : summarizeWithOllama;
         withRetry(() => summarize(reviews, placeName, settings, googleRating, googleReviewCount))
             .then((result) => sendResponse({ type: 'SUMMARY_RESULT', payload: result }))

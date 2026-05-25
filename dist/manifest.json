@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Review Lens – AI Review Summarizer",
+  "name": "GReviewSumm – AI Review Summarizer",
   "version": "1.0.0",
   "description": "Instantly summarize Google reviews with AI. See the best and worst points at a glance.",
   "permissions": [
@@ -17,7 +17,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Review Lens",
+    "default_title": "GReviewSumm",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

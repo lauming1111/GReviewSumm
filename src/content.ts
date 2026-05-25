@@ -25,7 +25,7 @@ async function ensureReviewsTabOpen(tabOpenWaitMs: number): Promise<void> {
 
   if (reviewsBtn) {
     reviewsBtn.click();
-    console.log('[Review Lens] Clicked Reviews tab, waiting for cards…');
+    console.log('[GReviewSumm] Clicked Reviews tab, waiting for cards…');
     await sleep(tabOpenWaitMs);
   }
 }
@@ -61,7 +61,7 @@ function clickMoreReviewsButton(): boolean {
            keywords.test(el.getAttribute('aria-label') ?? '');
   });
   if (btn) {
-    console.log(`[Review Lens] Clicking "More reviews" button: "${btn.textContent?.trim()}"`);
+    console.log(`[GReviewSumm] Clicking "More reviews" button: "${btn.textContent?.trim()}"`);
     btn.click();
     return true;
   }
@@ -302,7 +302,7 @@ async function scrollAndScrapeReviews(
   await ensureReviewsTabOpen(cfg.tabOpenWaitMs);
 
   if (getReviewCards().length === 0) {
-    console.log('[Review Lens] No review cards found after tab open attempt');
+    console.log('[GReviewSumm] No review cards found after tab open attempt');
     return { reviews: [], placeName: document.title };
   }
 
@@ -338,7 +338,7 @@ async function scrollAndScrapeReviews(
     await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.scrollWaitMs);
 
     const added = collectVisible();
-    console.log(`[Review Lens] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
+    console.log(`[GReviewSumm] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
 
     if (added === 0) {
       const clicked = clickMoreReviewsButton();
@@ -356,7 +356,7 @@ async function scrollAndScrapeReviews(
     }
   }
 
-  console.log(`[Review Lens] Done: ${allReviews.length} unique reviews`);
+  console.log(`[GReviewSumm] Done: ${allReviews.length} unique reviews`);
 
   const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
   const placeNameEl =

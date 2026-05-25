@@ -1,5 +1,5 @@
 /**
- * ─── Review Lens — Tunable Parameters ────────────────────────────────────────
+ * ─── GReviewSumm — Tunable Parameters ────────────────────────────────────────
  *
  * Edit this file to tune the extension's behaviour.
  * All values here flow automatically into the content script (via the

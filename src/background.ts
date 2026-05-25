@@ -138,7 +138,7 @@ async function summarizeWithOllama(
   await checkOllama();
 
   const model = settings.ollamaModel ?? 'gpt-oss:latest';
-  console.log(`[Review Lens] Ollama model: ${model}, reviews: ${selected.length}`);
+  console.log(`[GReviewSumm] Ollama model: ${model}, reviews: ${selected.length}`);
 
   const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
     method: 'POST',
@@ -178,7 +178,7 @@ async function summarizeWithOpenAI(
   const avgRating = googleRating ?? computed;
 
   const model = settings.openaiModel ?? 'gpt-4o-mini';
-  console.log(`[Review Lens] OpenAI model: ${model}, reviews: ${selected.length}`);
+  console.log(`[GReviewSumm] OpenAI model: ${model}, reviews: ${selected.length}`);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -218,7 +218,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = AI_DEFAULTS.MAX_
       return await fn();
     } catch (err) {
       if (!(err instanceof SyntaxError) || attempt >= maxAttempts) throw err;
-      console.warn(`[Review Lens] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
+      console.warn(`[GReviewSumm] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
     }
   }
 }
@@ -228,7 +228,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = AI_DEFAULTS.MAX_
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
   if (message.type === 'SUMMARIZE') {
     const { reviews, placeName, settings, googleRating, googleReviewCount } = message.payload;
-    console.log(`[Review Lens] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
+    console.log(`[GReviewSumm] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
 
     const summarize = settings.aiProvider === 'openai' ? summarizeWithOpenAI : summarizeWithOllama;
 
