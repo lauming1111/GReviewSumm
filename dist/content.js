@@ -7,7 +7,7 @@ function getReviewCards() {
     return Array.from(document.querySelectorAll(REVIEW_CARD_SELECTOR)).filter((el) => !el.parentElement?.closest(REVIEW_CARD_SELECTOR));
 }
 // If reviews tab isn't open yet, find and click it
-async function ensureReviewsTabOpen() {
+async function ensureReviewsTabOpen(tabOpenWaitMs) {
     if (getReviewCards().length > 0)
         return;
     const allButtons = Array.from(document.querySelectorAll('button, [role="tab"]'));
@@ -18,7 +18,23 @@ async function ensureReviewsTabOpen() {
     if (reviewsBtn) {
         reviewsBtn.click();
         console.log('[Review Lens] Clicked Reviews tab, waiting for cards…');
-        await sleep(2500);
+        await sleep(tabOpenWaitMs);
+    }
+}
+// Poll every pollMs until a new unique review is visible, or timeoutMs elapses.
+// Exits early as soon as new content appears — much faster than a fixed sleep.
+async function waitForNewContent(seenKeys, pollMs, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await sleep(pollMs);
+        for (const card of getReviewCards()) {
+            const review = extractReviewFromCard(card);
+            if (!review)
+                continue;
+            const key = `${review.author}|${review.text.slice(0, 60)}`;
+            if (!seenKeys.has(key))
+                return; // new content spotted — exit immediately
+        }
     }
 }
 // Click a "More reviews" / "See more" button if one is visible, return true if clicked
@@ -61,22 +77,76 @@ function scrollReviewsPanel(lastCard) {
     window.scrollTo(0, document.documentElement.scrollHeight);
 }
 // ─── Scraping ─────────────────────────────────────────────────────────────────
+// Returns the number of DOM-tree edges between two elements (via their LCA).
+// Used to find the rating element nearest to the place-name h1.
+function domDistance(from, to) {
+    const distFromAncestors = new Map();
+    let node = from;
+    let d = 0;
+    while (node) {
+        distFromAncestors.set(node, d++);
+        node = node.parentElement;
+    }
+    node = to;
+    d = 0;
+    while (node) {
+        if (distFromAncestors.has(node))
+            return distFromAncestors.get(node) + d;
+        node = node.parentElement;
+        d++;
+    }
+    return Infinity;
+}
 function scrapeGoogleAggregateRating() {
-    const candidates = Array.from(document.querySelectorAll('[aria-label*=" star"]'));
-    for (const el of candidates) {
+    function tryParseEl(el) {
         if (el.closest(REVIEW_CARD_SELECTOR))
-            continue;
+            return null;
         const label = el.getAttribute('aria-label') ?? '';
-        const ratingMatch = label.match(/(\d+(?:\.\d+)?)\s*stars?/i);
+        // Match X.X before "stars", "out of 5", after "rated", or "X/5" format
+        const ratingMatch = label.match(/(\d+(?:\.\d+)?)\s*(?:stars?\s*(?:out\s*of)?|out\s*of)/i) ??
+            label.match(/rated?\s+(\d+(?:\.\d+)?)/i) ??
+            label.match(/(\d+(?:\.\d+)?)\s*\/\s*5/i);
         if (!ratingMatch)
-            continue;
+            return null;
+        const rating = parseFloat(ratingMatch[1]);
+        if (rating < 1 || rating > 5)
+            return null;
         const countMatch = label.match(/([\d,]+)\s*reviews?/i);
         return {
-            googleRating: parseFloat(ratingMatch[1]),
+            googleRating: rating,
             googleReviewCount: countMatch ? parseInt(countMatch[1].replace(/,/g, ''), 10) : null,
         };
     }
-    return { googleRating: null, googleReviewCount: null };
+    // The Google Maps page has many star elements:
+    //  • search-results sidebar entries  — rendered BEFORE the place-detail h1
+    //  • the current place's rating chip — rendered just AFTER the h1
+    //  • "Reviews from the web" section  — rendered later, after the rating chip
+    //  • review histogram bars           — inside the reviews section
+    //
+    // Strategy:
+    //  1. Find all candidates page-wide.
+    //  2. Prefer elements that appear AFTER h1 in document order (sidebar is before h1).
+    //  3. Among those, take the one with the smallest DOM distance to h1
+    //     (rating chip is 3–8 edges; web-reviews section is much further).
+    const h1 = document.querySelector('h1.DUwDvf, h1[class*="fontHeadlineLarge"], h1');
+    const allCandidates = Array.from(document.querySelectorAll('[role="img"][aria-label],[aria-label*="star"],[aria-label*="out of 5"],[aria-label*="rated "],[aria-label*="/5"]'));
+    const allValid = [];
+    for (const el of allCandidates) {
+        const result = tryParseEl(el);
+        if (result)
+            allValid.push({ result, el });
+    }
+    if (allValid.length === 0)
+        return { googleRating: null, googleReviewCount: null };
+    if (!h1)
+        return allValid[0].result; // no anchor — fall back to first found
+    // Keep only elements that follow h1 in document order; fall back to all if none.
+    const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+    const afterH1 = allValid.filter(({ el }) => !!(h1.compareDocumentPosition(el) & FOLLOWING));
+    const pool = afterH1.length > 0 ? afterH1 : allValid;
+    // Pick the candidate with the smallest DOM-tree distance to h1.
+    pool.sort((a, b) => domDistance(h1, a.el) - domDistance(h1, b.el));
+    return pool[0].result;
 }
 function extractStarRating(el) {
     const ariaLabel = el.getAttribute('aria-label') ?? '';
@@ -110,18 +180,13 @@ function extractReviewFromCard(card) {
         date: dateEl?.textContent?.trim(),
     };
 }
-function scrapeBasicInfo() {
-    const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
-    const placeNameEl = document.querySelector('h1.DUwDvf') ??
-        document.querySelector('h1[class*="fontHeadlineLarge"]') ??
-        document.querySelector('h1');
+function scrapeContactInfo() {
     // Category — button with category jsaction, or first short text block after h1
     let category;
     const catEl = document.querySelector('button[jsaction*="category"]') ??
         document.querySelector('[class*="DkEaL"]');
-    if (catEl?.textContent?.trim()) {
+    if (catEl?.textContent?.trim())
         category = catEl.textContent.trim();
-    }
     // Address — aria-label is most reliable; strip leading "Address: " prefix
     let address;
     const addressBtn = document.querySelector('[data-item-id="address"]');
@@ -140,6 +205,40 @@ function scrapeBasicInfo() {
             ? label.replace(/^phone:\s*/i, '').trim()
             : phoneBtn.textContent?.trim();
     }
+    return { category, address, phone };
+}
+async function scrapeBasicInfo() {
+    let { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
+    const placeNameEl = document.querySelector('h1.DUwDvf') ??
+        document.querySelector('h1[class*="fontHeadlineLarge"]') ??
+        document.querySelector('h1');
+    let { category, address, phone } = scrapeContactInfo();
+    // If contact info is missing we may be on the Reviews tab (Overview content not rendered).
+    // Temporarily switch to Overview, re-scrape, then switch back — invisible to the user.
+    if (!address && !phone && !category) {
+        const allTabs = Array.from(document.querySelectorAll('button[role="tab"], [role="tab"]'));
+        const overviewBtn = allTabs.find((btn) => {
+            const t = btn.textContent?.trim().toLowerCase() ?? '';
+            return t === 'overview' || t === 'info';
+        });
+        const reviewsBtn = allTabs.find((btn) => {
+            const t = btn.textContent?.trim().toLowerCase() ?? '';
+            return t === 'reviews' || t.startsWith('reviews ');
+        });
+        if (overviewBtn) {
+            overviewBtn.click();
+            await sleep(700); // wait for Overview panel to render
+            ({ category, address, phone } = scrapeContactInfo());
+            // Also re-scrape rating — might be more accurate on Overview
+            const overviewRating = scrapeGoogleAggregateRating();
+            if (overviewRating.googleRating !== null)
+                googleRating = overviewRating.googleRating;
+            if (overviewRating.googleReviewCount !== null)
+                googleReviewCount = overviewRating.googleReviewCount;
+            if (reviewsBtn)
+                reviewsBtn.click(); // restore Reviews tab
+        }
+    }
     return {
         placeName: placeNameEl?.textContent?.trim() ?? document.title ?? 'This Place',
         ...(googleRating !== null && { googleRating }),
@@ -153,8 +252,15 @@ function scrapeBasicInfo() {
 // Updated by scrollAndScrapeReviews so GET_PROGRESS can report live count.
 let progressCount = 0;
 let shouldStop = false;
-async function scrollAndScrapeReviews(maxReviews) {
-    await ensureReviewsTabOpen();
+const DEFAULT_SCROLL_CONFIG = {
+    tabOpenWaitMs: 1500,
+    pollIntervalMs: 300,
+    scrollWaitMs: 2000,
+    moreReviewsWaitMs: 2000,
+    maxStableRounds: 5,
+};
+async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
+    await ensureReviewsTabOpen(cfg.tabOpenWaitMs);
     if (getReviewCards().length === 0) {
         console.log('[Review Lens] No review cards found after tab open attempt');
         return { reviews: [], placeName: document.title };
@@ -180,18 +286,18 @@ async function scrollAndScrapeReviews(maxReviews) {
     // Grab the first visible batch before scrolling
     collectVisible();
     let stableRounds = 0;
-    const MAX_STABLE = 5;
-    while (stableRounds < MAX_STABLE && allReviews.length < maxReviews && !shouldStop) {
+    while (stableRounds < cfg.maxStableRounds && allReviews.length < maxReviews && !shouldStop) {
         const lastCard = getReviewCards().slice(-1)[0];
         if (lastCard)
             scrollReviewsPanel(lastCard);
-        await sleep(2500);
+        // Smart wait: exit as soon as new reviews appear (poll) or timeout
+        await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.scrollWaitMs);
         const added = collectVisible();
         console.log(`[Review Lens] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
         if (added === 0) {
             const clicked = clickMoreReviewsButton();
             if (clicked) {
-                await sleep(2500);
+                await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.moreReviewsWaitMs);
                 const addedAfterClick = collectVisible();
                 if (addedAfterClick > 0) {
                     stableRounds = 0;
@@ -228,12 +334,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return true;
     }
     if (message.type === 'GET_BASIC_INFO') {
-        try {
-            sendResponse({ type: 'BASIC_INFO', payload: scrapeBasicInfo() });
-        }
-        catch (err) {
-            sendResponse({ type: 'ERROR', payload: String(err) });
-        }
+        (async () => {
+            try {
+                sendResponse({ type: 'BASIC_INFO', payload: await scrapeBasicInfo() });
+            }
+            catch (err) {
+                sendResponse({ type: 'ERROR', payload: String(err) });
+            }
+        })();
         return true;
     }
     if (message.type === 'GET_REVIEWS') {
