@@ -82,7 +82,7 @@ Rules:
 - pros and cons must be specific, actionable insights drawn from actual review content
 - topThemes are 1–3 word topics that appear most often (e.g. "parking", "wait times", "staff")
 - overallSentiment reflects the general tone across all reviews
-- notableStaff: list only real person names (first name or full name) of employees or staff who are mentioned by name in at least 2 different reviews; return [] if none found
+- notableStaff: list only the first names (or full names) of EMPLOYEES or STAFF of "${placeName}" who are praised or mentioned by name in at least 2 different reviews; DO NOT include the names of customers or reviewers (i.e. the people who wrote the reviews), DO NOT include business names, brand names, platforms, or services; if no staff members can be clearly identified return []
 - Be concise but informative`;
 }
 
