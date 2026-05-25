@@ -46,4 +46,30 @@ export const AI_DEFAULTS = {
 
   /** How many times to retry the AI call when it returns invalid JSON */
   MAX_RETRIES: 3,
+
+  /** Default Anthropic model */
+  ANTHROPIC_MODEL: 'claude-3-5-haiku-20241022',
+
+  /** Default Google Gemini model */
+  GEMINI_MODEL: 'gemini-2.0-flash',
+
+  /** Default Groq model */
+  GROQ_MODEL: 'llama-3.3-70b-versatile',
+
+  // ─── Ollama local model parameters ──────────────────────────────────────────
+
+  /** Sampling temperature — lower = more focused, higher = more creative */
+  OLLAMA_TEMPERATURE: 0.7,
+
+  /** Top-K sampling — number of tokens to consider at each step */
+  OLLAMA_TOP_K: 40,
+
+  /** Top-P (nucleus) sampling */
+  OLLAMA_TOP_P: 0.9,
+
+  /** Context window size in tokens */
+  OLLAMA_NUM_CTX: 4096,
+
+  /** Repeat penalty — discourages repetition (1.0 = off) */
+  OLLAMA_REPEAT_PENALTY: 1.1,
 } as const;

@@ -110,6 +110,12 @@ function buildResult(
   };
 }
 
+/** Shared helper: compute avgRating from a filtered review set (or use Google's value). */
+function computeAvg(selected: Review[], googleRating?: number): number {
+  const rated = selected.filter((r) => r.rating > 0);
+  return googleRating ?? (rated.reduce((s, r) => s + r.rating, 0) / (rated.length || 1));
+}
+
 // ─── Ollama ───────────────────────────────────────────────────────────────────
 
 async function checkOllama(): Promise<void> {
@@ -131,19 +137,32 @@ async function summarizeWithOllama(
   googleReviewCount?: number
 ): Promise<SummaryResult> {
   const selected = filterReviews(reviews, settings);
-  const computed = selected.reduce((s, r) => s + (r.rating || 0), 0) /
-    (selected.filter((r) => r.rating > 0).length || 1);
-  const avgRating = googleRating ?? computed;
+  const avgRating = computeAvg(selected, googleRating);
 
   await checkOllama();
 
-  const model = settings.ollamaModel ?? 'gpt-oss:latest';
-  console.log(`[GReviewSumm] Ollama model: ${model}, reviews: ${selected.length}`);
+  const model = settings.ollamaModel ?? AI_DEFAULTS.OLLAMA_MODEL;
+  const p = settings.ollamaParams ?? {};
+
+  // Build Ollama options only for params that were explicitly set
+  const options: Record<string, number> = {};
+  if (p.temperature   !== undefined) options.temperature    = p.temperature;
+  if (p.topK          !== undefined) options.top_k          = p.topK;
+  if (p.topP          !== undefined) options.top_p          = p.topP;
+  if (p.numCtx        !== undefined) options.num_ctx        = p.numCtx;
+  if (p.repeatPenalty !== undefined) options.repeat_penalty = p.repeatPenalty;
+
+  console.log(`[GReviewSumm] Ollama model: ${model}, reviews: ${selected.length}`, options);
 
   const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt: buildPrompt(selected, placeName, reviews.length), stream: false }),
+    body: JSON.stringify({
+      model,
+      prompt: buildPrompt(selected, placeName, reviews.length),
+      stream: false,
+      ...(Object.keys(options).length > 0 && { options }),
+    }),
   });
 
   if (!response.ok) {
@@ -173,11 +192,8 @@ async function summarizeWithOpenAI(
   }
 
   const selected = filterReviews(reviews, settings);
-  const computed = selected.reduce((s, r) => s + (r.rating || 0), 0) /
-    (selected.filter((r) => r.rating > 0).length || 1);
-  const avgRating = googleRating ?? computed;
-
-  const model = settings.openaiModel ?? 'gpt-4o-mini';
+  const avgRating = computeAvg(selected, googleRating);
+  const model = settings.openaiModel ?? AI_DEFAULTS.OPENAI_MODEL;
   console.log(`[GReviewSumm] OpenAI model: ${model}, reviews: ${selected.length}`);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -208,6 +224,192 @@ async function summarizeWithOpenAI(
   );
 }
 
+// ─── Anthropic Claude ─────────────────────────────────────────────────────────
+
+async function summarizeWithAnthropic(
+  reviews: Review[],
+  placeName: string,
+  settings: ReviewSettings,
+  googleRating?: number,
+  googleReviewCount?: number
+): Promise<SummaryResult> {
+  if (!settings.anthropicApiKey) {
+    throw new Error('Anthropic API key is not set. Go to ⚙ Settings and add your key.');
+  }
+
+  const selected = filterReviews(reviews, settings);
+  const avgRating = computeAvg(selected, googleRating);
+  const model = settings.anthropicModel ?? AI_DEFAULTS.ANTHROPIC_MODEL;
+  console.log(`[GReviewSumm] Anthropic model: ${model}, reviews: ${selected.length}`);
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Anthropic API error ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+  const raw: string = data.content?.[0]?.text ?? '';
+  return buildResult(
+    parseAIResponse(raw),
+    placeName,
+    avgRating,
+    googleReviewCount ?? reviews.length
+  );
+}
+
+// ─── Google Gemini ────────────────────────────────────────────────────────────
+
+async function summarizeWithGemini(
+  reviews: Review[],
+  placeName: string,
+  settings: ReviewSettings,
+  googleRating?: number,
+  googleReviewCount?: number
+): Promise<SummaryResult> {
+  if (!settings.geminiApiKey) {
+    throw new Error('Google Gemini API key is not set. Go to ⚙ Settings and add your key.');
+  }
+
+  const selected = filterReviews(reviews, settings);
+  const avgRating = computeAvg(selected, googleRating);
+  const model = settings.geminiModel ?? AI_DEFAULTS.GEMINI_MODEL;
+  console.log(`[GReviewSumm] Gemini model: ${model}, reviews: ${selected.length}`);
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiApiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: buildPrompt(selected, placeName, reviews.length) }] }],
+      generationConfig: { temperature: 0.3 },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+  const raw: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  return buildResult(
+    parseAIResponse(raw),
+    placeName,
+    avgRating,
+    googleReviewCount ?? reviews.length
+  );
+}
+
+// ─── Groq ─────────────────────────────────────────────────────────────────────
+
+async function summarizeWithGroq(
+  reviews: Review[],
+  placeName: string,
+  settings: ReviewSettings,
+  googleRating?: number,
+  googleReviewCount?: number
+): Promise<SummaryResult> {
+  if (!settings.groqApiKey) {
+    throw new Error('Groq API key is not set. Go to ⚙ Settings and add your key.');
+  }
+
+  const selected = filterReviews(reviews, settings);
+  const avgRating = computeAvg(selected, googleRating);
+  const model = settings.groqModel ?? AI_DEFAULTS.GROQ_MODEL;
+  console.log(`[GReviewSumm] Groq model: ${model}, reviews: ${selected.length}`);
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${settings.groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Groq API error ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+  const raw: string = data.choices?.[0]?.message?.content ?? '';
+  return buildResult(
+    parseAIResponse(raw),
+    placeName,
+    avgRating,
+    googleReviewCount ?? reviews.length
+  );
+}
+
+// ─── Custom OpenAI-compatible endpoint ────────────────────────────────────────
+
+async function summarizeWithCustom(
+  reviews: Review[],
+  placeName: string,
+  settings: ReviewSettings,
+  googleRating?: number,
+  googleReviewCount?: number
+): Promise<SummaryResult> {
+  if (!settings.customEndpoint) {
+    throw new Error('Custom endpoint URL is not set. Go to ⚙ Settings and add your endpoint URL.');
+  }
+
+  const selected = filterReviews(reviews, settings);
+  const avgRating = computeAvg(selected, googleRating);
+  const model = settings.customModel || 'local-model';
+  const baseUrl = settings.customEndpoint.replace(/\/+$/, '');
+  const url = `${baseUrl}/chat/completions`;
+
+  console.log(`[GReviewSumm] Custom endpoint: ${url}, model: ${model}, reviews: ${selected.length}`);
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (settings.customApiKey) headers['Authorization'] = `Bearer ${settings.customApiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Custom API error ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+  const raw: string = data.choices?.[0]?.message?.content ?? '';
+  return buildResult(
+    parseAIResponse(raw),
+    placeName,
+    avgRating,
+    googleReviewCount ?? reviews.length
+  );
+}
+
 // ─── Retry helper ─────────────────────────────────────────────────────────────
 
 // Re-runs fn() if it throws a SyntaxError (invalid JSON from the model).
@@ -223,14 +425,28 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = AI_DEFAULTS.MAX_
   }
 }
 
+// ─── Provider routing ─────────────────────────────────────────────────────────
+
+type SummarizeFn = typeof summarizeWithOllama;
+
+const PROVIDER_FN: Record<string, SummarizeFn> = {
+  ollama:    summarizeWithOllama,
+  openai:    summarizeWithOpenAI,
+  anthropic: summarizeWithAnthropic,
+  gemini:    summarizeWithGemini,
+  groq:      summarizeWithGroq,
+  custom:    summarizeWithCustom,
+};
+
 // ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
   if (message.type === 'SUMMARIZE') {
     const { reviews, placeName, settings, googleRating, googleReviewCount } = message.payload;
-    console.log(`[GReviewSumm] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
+    const provider = settings.aiProvider ?? 'ollama';
+    console.log(`[GReviewSumm] SUMMARIZE via ${provider} for "${placeName}"`);
 
-    const summarize = settings.aiProvider === 'openai' ? summarizeWithOpenAI : summarizeWithOllama;
+    const summarize = PROVIDER_FN[provider] ?? summarizeWithOllama;
 
     withRetry(() => summarize(reviews, placeName, settings, googleRating, googleReviewCount))
       .then((result) => sendResponse({ type: 'SUMMARY_RESULT', payload: result } satisfies MessageType))

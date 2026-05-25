@@ -18,13 +18,37 @@ export interface SummaryResult {
   notableStaff: string[];
 }
 
+export interface OllamaParams {
+  temperature?: number;   // 0.0–2.0
+  topK?: number;          // 1–200
+  topP?: number;          // 0.0–1.0
+  numCtx?: number;        // context window tokens
+  repeatPenalty?: number; // 0.0–2.0
+}
+
 export interface ReviewSettings {
   reviewMode: 'recent' | 'all' | '1m' | '3m' | '6m' | '1y';
   reviewCount: number;
-  aiProvider: 'ollama' | 'openai';
+  aiProvider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'custom';
+  // Ollama
   ollamaModel?: string;
+  ollamaParams?: OllamaParams;
+  // OpenAI
   openaiApiKey?: string;
   openaiModel?: string;
+  // Anthropic
+  anthropicApiKey?: string;
+  anthropicModel?: string;
+  // Google Gemini
+  geminiApiKey?: string;
+  geminiModel?: string;
+  // Groq
+  groqApiKey?: string;
+  groqModel?: string;
+  // Custom OpenAI-compatible endpoint
+  customEndpoint?: string;
+  customApiKey?: string;
+  customModel?: string;
 }
 
 export interface ScrollConfig {

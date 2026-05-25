@@ -178,8 +178,107 @@
       margin-bottom: 12px;
     }
 
-    input[type="number"]:focus {
-      border-color: var(--accent);
+    input[type="number"]:focus { border-color: var(--accent); }
+
+    /* ── Range slider ── */
+    input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 5px var(--accent-glow);
+    }
+
+    input[type="range"]:focus::-webkit-slider-thumb {
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* ── Advanced params panel ── */
+    .advanced-details {
+      margin-bottom: 12px;
+    }
+
+    .advanced-toggle {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 6px 0;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .advanced-toggle::-webkit-details-marker { display: none; }
+
+    details[open] > summary.advanced-toggle { color: var(--accent); }
+
+    .param-group {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .param-row { display: flex; flex-direction: column; gap: 4px; }
+
+    .param-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .param-val {
+      color: var(--accent);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .param-num-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .param-num-row label {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0;
+    }
+
+    .param-num {
+      width: 90px !important;
+      padding: 6px 8px !important;
+      font-size: 12px !important;
+      margin-bottom: 0 !important;
+      text-align: right;
     }
 
     /* ── Scope button grid ── */
@@ -694,6 +793,17 @@
       margin-bottom: 10px;
     }
 
+    .provider-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      border-left: 2px solid var(--border);
+    }
+
     select {
       width: 100%;
       background: var(--surface2);
@@ -771,34 +881,145 @@
     <div class="setup-icon">⚙️</div>
     <div class="setup-title">Settings</div>
 
+    <!-- ── AI Provider ── -->
     <label>AI Provider</label>
-    <div class="scope-grid" style="grid-template-columns: repeat(2,1fr);" id="ai-provider-group">
+    <div class="scope-grid" id="ai-provider-group">
       <button class="scope-btn" data-value="ollama">
         <span class="scope-label">Ollama</span>
         <span class="scope-sub">local · free</span>
       </button>
       <button class="scope-btn" data-value="openai">
         <span class="scope-label">OpenAI</span>
-        <span class="scope-sub">ChatGPT · API</span>
+        <span class="scope-sub">ChatGPT</span>
+      </button>
+      <button class="scope-btn" data-value="anthropic">
+        <span class="scope-label">Claude</span>
+        <span class="scope-sub">Anthropic</span>
+      </button>
+      <button class="scope-btn" data-value="gemini">
+        <span class="scope-label">Gemini</span>
+        <span class="scope-sub">Google</span>
+      </button>
+      <button class="scope-btn" data-value="groq">
+        <span class="scope-label">Groq</span>
+        <span class="scope-sub">fast · free</span>
+      </button>
+      <button class="scope-btn" data-value="custom">
+        <span class="scope-label">Custom</span>
+        <span class="scope-sub">OpenAI compat</span>
       </button>
     </div>
 
+    <!-- ── Ollama config ── -->
     <div id="ollama-config">
       <label for="ollama-model-input">Model name</label>
-      <input type="text" id="ollama-model-input" placeholder="e.g. llama3, mistral, gpt-oss:latest" />
+      <input type="text" id="ollama-model-input" placeholder="e.g. llama3.2:latest, mistral, phi4" />
+
+      <details class="advanced-details">
+        <summary class="advanced-toggle">▸ Advanced model parameters</summary>
+        <div class="param-group">
+
+          <div class="param-row">
+            <div class="param-label-row">
+              <span>Temperature</span>
+              <span class="param-val" id="ollama-temp-val">0.7</span>
+            </div>
+            <input type="range" id="ollama-temp" min="0" max="2" step="0.05" value="0.7" />
+          </div>
+
+          <div class="param-row">
+            <div class="param-label-row">
+              <span>Top-P (nucleus sampling)</span>
+              <span class="param-val" id="ollama-topp-val">0.9</span>
+            </div>
+            <input type="range" id="ollama-topp" min="0" max="1" step="0.05" value="0.9" />
+          </div>
+
+          <div class="param-row">
+            <div class="param-label-row">
+              <span>Repeat penalty</span>
+              <span class="param-val" id="ollama-rp-val">1.1</span>
+            </div>
+            <input type="range" id="ollama-rp" min="0.9" max="1.5" step="0.05" value="1.1" />
+          </div>
+
+          <div class="param-num-row">
+            <label for="ollama-topk">Top-K</label>
+            <input type="number" id="ollama-topk" class="param-num" min="1" max="200" step="1" value="40" />
+          </div>
+
+          <div class="param-num-row">
+            <label for="ollama-numctx">Context window (num_ctx)</label>
+            <input type="number" id="ollama-numctx" class="param-num" min="512" max="131072" step="512" value="4096" />
+          </div>
+
+        </div>
+      </details>
     </div>
 
+    <!-- ── OpenAI config ── -->
     <div id="openai-config" hidden>
-      <div class="experimental-tag">⚠ Experimental</div>
       <label for="openai-key-input">API Key</label>
       <input type="password" id="openai-key-input" placeholder="sk-..." autocomplete="off" />
       <label for="openai-model-select">Model</label>
       <select id="openai-model-select">
         <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; affordable</option>
         <option value="gpt-4o">gpt-4o — most capable</option>
+        <option value="gpt-4.1-mini">gpt-4.1-mini — latest mini</option>
+        <option value="gpt-4.1">gpt-4.1 — latest flagship</option>
       </select>
     </div>
 
+    <!-- ── Anthropic config ── -->
+    <div id="anthropic-config" hidden>
+      <label for="anthropic-key-input">API Key</label>
+      <input type="password" id="anthropic-key-input" placeholder="sk-ant-..." autocomplete="off" />
+      <label for="anthropic-model-input">Model</label>
+      <input type="text" id="anthropic-model-input"
+             placeholder="e.g. claude-opus-4-5, claude-3-5-haiku-20241022" />
+    </div>
+
+    <!-- ── Gemini config ── -->
+    <div id="gemini-config" hidden>
+      <label for="gemini-key-input">API Key</label>
+      <input type="password" id="gemini-key-input" placeholder="AIza..." autocomplete="off" />
+      <label for="gemini-model-select">Model</label>
+      <select id="gemini-model-select">
+        <option value="gemini-2.0-flash">gemini-2.0-flash — fast &amp; free tier</option>
+        <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite — lightest</option>
+        <option value="gemini-1.5-pro">gemini-1.5-pro — high quality</option>
+        <option value="gemini-1.5-flash">gemini-1.5-flash — balanced</option>
+      </select>
+    </div>
+
+    <!-- ── Groq config ── -->
+    <div id="groq-config" hidden>
+      <label for="groq-key-input">API Key</label>
+      <input type="password" id="groq-key-input" placeholder="gsk_..." autocomplete="off" />
+      <label for="groq-model-select">Model</label>
+      <select id="groq-model-select">
+        <option value="llama-3.3-70b-versatile">Llama 3.3 70B — versatile</option>
+        <option value="llama-3.1-8b-instant">Llama 3.1 8B — fastest</option>
+        <option value="mixtral-8x7b-32768">Mixtral 8×7B — long context</option>
+        <option value="gemma2-9b-it">Gemma 2 9B — efficient</option>
+      </select>
+    </div>
+
+    <!-- ── Custom OpenAI-compatible config ── -->
+    <div id="custom-config" hidden>
+      <p class="provider-note">
+        Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, Ollama (via /v1), etc.
+        For localhost endpoints, no extra setup needed.
+      </p>
+      <label for="custom-endpoint-input">Base URL</label>
+      <input type="text" id="custom-endpoint-input" placeholder="http://localhost:1234/v1" />
+      <label for="custom-model-input">Model name</label>
+      <input type="text" id="custom-model-input" placeholder="model identifier" />
+      <label for="custom-key-input">API Key (optional)</label>
+      <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
+    </div>
+
+    <!-- ── Review scope ── -->
     <label>Review scope</label>
     <div class="scope-grid" id="review-mode-group">
       <button class="scope-btn" data-value="all">
@@ -832,7 +1053,7 @@
       <input type="number" id="review-count-input" min="10" max="2000" step="100" value="1000" />
     </div>
 
-    <button class="btn btn-primary" data-action="save-settings">Save & Analyze</button>
+    <button class="btn btn-primary" data-action="save-settings">Save &amp; Analyze</button>
     <button class="btn btn-secondary" data-action="cancel-settings">Cancel</button>
   </div>
 

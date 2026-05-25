@@ -1,4 +1,4 @@
-import { SCROLL_CONFIG, POPUP_CONFIG } from './config.js';
+import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS } from './config.js';
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 function $(selector) {
     return document.querySelector(selector);
@@ -14,8 +14,13 @@ const DEFAULT_SETTINGS = {
     reviewCount: 1000,
     aiProvider: 'ollama',
     ollamaModel: 'llama3.2:latest',
+    ollamaParams: {},
     openaiModel: 'gpt-4o-mini',
+    anthropicModel: AI_DEFAULTS.ANTHROPIC_MODEL,
+    geminiModel: AI_DEFAULTS.GEMINI_MODEL,
+    groqModel: AI_DEFAULTS.GROQ_MODEL,
 };
+const ALL_PROVIDERS = ['ollama', 'openai', 'anthropic', 'gemini', 'groq', 'custom'];
 async function getSettings() {
     return new Promise((resolve) => {
         chrome.storage.local.get(['gReviewSummSettings'], (result) => {
@@ -34,12 +39,20 @@ function updateCountFieldVisibility(mode) {
         wrapper.hidden = mode === 'all';
 }
 function updateProviderVisibility(provider) {
-    const ollamaEl = document.getElementById('ollama-config');
-    const openaiEl = document.getElementById('openai-config');
-    if (ollamaEl)
-        ollamaEl.hidden = provider !== 'ollama';
-    if (openaiEl)
-        openaiEl.hidden = provider !== 'openai';
+    ALL_PROVIDERS.forEach((p) => {
+        const el = document.getElementById(`${p}-config`);
+        if (el)
+            el.hidden = p !== provider;
+    });
+}
+/** Update a range slider and its live-value label. */
+function setSlider(inputId, valId, value) {
+    const input = document.querySelector(`#${inputId}`);
+    const label = document.getElementById(valId);
+    if (input)
+        input.value = String(value);
+    if (label)
+        label.textContent = String(value);
 }
 function applySettingsToUI(settings) {
     // Review scope buttons
@@ -55,31 +68,109 @@ function applySettingsToUI(settings) {
         btn.classList.toggle('active', btn.dataset.value === (settings.aiProvider ?? 'ollama'));
     });
     updateProviderVisibility(settings.aiProvider ?? 'ollama');
-    // Provider-specific fields
+    // ── Ollama ──────────────────────────────────────────────────────────────────
     const ollamaModelEl = document.querySelector('#ollama-model-input');
     if (ollamaModelEl)
         ollamaModelEl.value = settings.ollamaModel ?? DEFAULT_SETTINGS.ollamaModel ?? '';
+    const p = settings.ollamaParams ?? {};
+    setSlider('ollama-temp', 'ollama-temp-val', p.temperature ?? AI_DEFAULTS.OLLAMA_TEMPERATURE);
+    setSlider('ollama-topp', 'ollama-topp-val', p.topP ?? AI_DEFAULTS.OLLAMA_TOP_P);
+    setSlider('ollama-rp', 'ollama-rp-val', p.repeatPenalty ?? AI_DEFAULTS.OLLAMA_REPEAT_PENALTY);
+    const topkEl = document.querySelector('#ollama-topk');
+    const numctxEl = document.querySelector('#ollama-numctx');
+    if (topkEl)
+        topkEl.value = String(p.topK ?? AI_DEFAULTS.OLLAMA_TOP_K);
+    if (numctxEl)
+        numctxEl.value = String(p.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX);
+    // ── OpenAI ──────────────────────────────────────────────────────────────────
     const openaiKeyEl = document.querySelector('#openai-key-input');
     if (openaiKeyEl)
         openaiKeyEl.value = settings.openaiApiKey ?? '';
     const openaiModelEl = document.querySelector('#openai-model-select');
     if (openaiModelEl)
         openaiModelEl.value = settings.openaiModel ?? DEFAULT_SETTINGS.openaiModel ?? 'gpt-4o-mini';
+    // ── Anthropic ───────────────────────────────────────────────────────────────
+    const anthropicKeyEl = document.querySelector('#anthropic-key-input');
+    if (anthropicKeyEl)
+        anthropicKeyEl.value = settings.anthropicApiKey ?? '';
+    const anthropicModelEl = document.querySelector('#anthropic-model-input');
+    if (anthropicModelEl)
+        anthropicModelEl.value = settings.anthropicModel ?? DEFAULT_SETTINGS.anthropicModel ?? '';
+    // ── Gemini ──────────────────────────────────────────────────────────────────
+    const geminiKeyEl = document.querySelector('#gemini-key-input');
+    if (geminiKeyEl)
+        geminiKeyEl.value = settings.geminiApiKey ?? '';
+    const geminiModelEl = document.querySelector('#gemini-model-select');
+    if (geminiModelEl)
+        geminiModelEl.value = settings.geminiModel ?? DEFAULT_SETTINGS.geminiModel ?? 'gemini-2.0-flash';
+    // ── Groq ────────────────────────────────────────────────────────────────────
+    const groqKeyEl = document.querySelector('#groq-key-input');
+    if (groqKeyEl)
+        groqKeyEl.value = settings.groqApiKey ?? '';
+    const groqModelEl = document.querySelector('#groq-model-select');
+    if (groqModelEl)
+        groqModelEl.value = settings.groqModel ?? DEFAULT_SETTINGS.groqModel ?? 'llama-3.3-70b-versatile';
+    // ── Custom ──────────────────────────────────────────────────────────────────
+    const customEndpointEl = document.querySelector('#custom-endpoint-input');
+    if (customEndpointEl)
+        customEndpointEl.value = settings.customEndpoint ?? '';
+    const customKeyEl = document.querySelector('#custom-key-input');
+    if (customKeyEl)
+        customKeyEl.value = settings.customApiKey ?? '';
+    const customModelEl = document.querySelector('#custom-model-input');
+    if (customModelEl)
+        customModelEl.value = settings.customModel ?? '';
 }
 function readSettingsFromUI() {
     const activeScope = document.querySelector('#review-mode-group .scope-btn.active');
     const activeProvider = document.querySelector('#ai-provider-group .scope-btn.active');
     const countInput = document.querySelector('#review-count-input');
+    // Ollama
     const ollamaModelEl = document.querySelector('#ollama-model-input');
+    const ollamaTempEl = document.querySelector('#ollama-temp');
+    const ollamaToppEl = document.querySelector('#ollama-topp');
+    const ollamaRpEl = document.querySelector('#ollama-rp');
+    const ollamaTopkEl = document.querySelector('#ollama-topk');
+    const ollamaNumctxEl = document.querySelector('#ollama-numctx');
+    // OpenAI
     const openaiKeyEl = document.querySelector('#openai-key-input');
     const openaiModelEl = document.querySelector('#openai-model-select');
+    // Anthropic
+    const anthropicKeyEl = document.querySelector('#anthropic-key-input');
+    const anthropicModelEl = document.querySelector('#anthropic-model-input');
+    // Gemini
+    const geminiKeyEl = document.querySelector('#gemini-key-input');
+    const geminiModelEl = document.querySelector('#gemini-model-select');
+    // Groq
+    const groqKeyEl = document.querySelector('#groq-key-input');
+    const groqModelEl = document.querySelector('#groq-model-select');
+    // Custom
+    const customEndpointEl = document.querySelector('#custom-endpoint-input');
+    const customKeyEl = document.querySelector('#custom-key-input');
+    const customModelEl = document.querySelector('#custom-model-input');
     return {
         reviewMode: activeScope?.dataset.value ?? DEFAULT_SETTINGS.reviewMode,
         reviewCount: Math.max(10, Number(countInput?.value ?? DEFAULT_SETTINGS.reviewCount)),
         aiProvider: activeProvider?.dataset.value ?? 'ollama',
         ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
+        ollamaParams: {
+            temperature: ollamaTempEl ? parseFloat(ollamaTempEl.value) : AI_DEFAULTS.OLLAMA_TEMPERATURE,
+            topP: ollamaToppEl ? parseFloat(ollamaToppEl.value) : AI_DEFAULTS.OLLAMA_TOP_P,
+            repeatPenalty: ollamaRpEl ? parseFloat(ollamaRpEl.value) : AI_DEFAULTS.OLLAMA_REPEAT_PENALTY,
+            topK: ollamaTopkEl ? parseInt(ollamaTopkEl.value, 10) : AI_DEFAULTS.OLLAMA_TOP_K,
+            numCtx: ollamaNumctxEl ? parseInt(ollamaNumctxEl.value, 10) : AI_DEFAULTS.OLLAMA_NUM_CTX,
+        },
         openaiApiKey: openaiKeyEl?.value.trim() || undefined,
         openaiModel: openaiModelEl?.value || DEFAULT_SETTINGS.openaiModel,
+        anthropicApiKey: anthropicKeyEl?.value.trim() || undefined,
+        anthropicModel: anthropicModelEl?.value.trim() || DEFAULT_SETTINGS.anthropicModel,
+        geminiApiKey: geminiKeyEl?.value.trim() || undefined,
+        geminiModel: geminiModelEl?.value || DEFAULT_SETTINGS.geminiModel,
+        groqApiKey: groqKeyEl?.value.trim() || undefined,
+        groqModel: groqModelEl?.value || DEFAULT_SETTINGS.groqModel,
+        customEndpoint: customEndpointEl?.value.trim() || undefined,
+        customApiKey: customKeyEl?.value.trim() || undefined,
+        customModel: customModelEl?.value.trim() || undefined,
     };
 }
 function normalizeUrl(url) {
@@ -592,6 +683,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.querySelectorAll('#ai-provider-group .scope-btn').forEach((b) => b.classList.remove('active'));
             btn.classList.add('active');
             updateProviderVisibility(btn.dataset.value);
+        });
+    });
+    // Ollama sliders — live value display
+    ['temp', 'topp', 'rp'].forEach((param) => {
+        const slider = document.querySelector(`#ollama-${param}`);
+        const valEl = document.getElementById(`ollama-${param}-val`);
+        slider?.addEventListener('input', () => {
+            if (valEl)
+                valEl.textContent = slider.value;
         });
     });
     // History screen
