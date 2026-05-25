@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.claude/
+
+# macOS
+.DS_Store
+
+# Build artefacts
+*.js.map
+*.tsbuildinfo
