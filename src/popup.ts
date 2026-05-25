@@ -8,7 +8,7 @@ function $(selector: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(selector);
 }
 
-function setScreen(name: 'info' | 'history' | 'settings' | 'loading' | 'result' | 'error' | 'no-reviews'): void {
+function setScreen(name: 'info' | 'history' | 'settings' | 'loading' | 'result' | 'error' | 'no-reviews' | 'wrong-page'): void {
   document.querySelectorAll<HTMLElement>('.screen').forEach((el) => {
     el.hidden = el.dataset.screen !== name;
   });
@@ -635,10 +635,28 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
 let currentTabUrl = '';
 let currentTabId  = 0;
 
+/** Returns true when the active tab is a supported Google Maps / Search page. */
+function isSupportedPage(url: string): boolean {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return (
+      hostname === 'maps.google.com' ||
+      (hostname === 'www.google.com' && (
+        pathname.startsWith('/maps') ||
+        pathname.startsWith('/search')
+      ))
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function showInfoScreen(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabUrl = tab.url ?? '';
   currentTabId  = tab.id ?? 0;
+
+  if (!isSupportedPage(currentTabUrl)) { setScreen('wrong-page'); return; }
 
   if (!currentTabId) { showError('Cannot access current tab.'); return; }
 
@@ -851,6 +869,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Loading controls
   document.getElementById('summarize-now-btn')?.addEventListener('click', () => stopGathering());
   document.getElementById('cancel-btn')?.addEventListener('click', () => cancelAnalysis());
+
+  // Wrong-page screen
+  $('[data-action="open-maps"]')?.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://maps.google.com' });
+  });
 
   // Error / no-reviews
   document.querySelectorAll<HTMLElement>('[data-action="retry"]').forEach((btn) => {

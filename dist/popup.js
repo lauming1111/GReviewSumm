@@ -581,10 +581,26 @@ function setLoadingStep(step, detail) {
 // ─── Info screen ──────────────────────────────────────────────────────────────
 let currentTabUrl = '';
 let currentTabId = 0;
+/** Returns true when the active tab is a supported Google Maps / Search page. */
+function isSupportedPage(url) {
+    try {
+        const { hostname, pathname } = new URL(url);
+        return (hostname === 'maps.google.com' ||
+            (hostname === 'www.google.com' && (pathname.startsWith('/maps') ||
+                pathname.startsWith('/search'))));
+    }
+    catch {
+        return false;
+    }
+}
 async function showInfoScreen() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     currentTabUrl = tab.url ?? '';
     currentTabId = tab.id ?? 0;
+    if (!isSupportedPage(currentTabUrl)) {
+        setScreen('wrong-page');
+        return;
+    }
     if (!currentTabId) {
         showError('Cannot access current tab.');
         return;
@@ -798,6 +814,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Loading controls
     document.getElementById('summarize-now-btn')?.addEventListener('click', () => stopGathering());
     document.getElementById('cancel-btn')?.addEventListener('click', () => cancelAnalysis());
+    // Wrong-page screen
+    $('[data-action="open-maps"]')?.addEventListener('click', () => {
+        chrome.tabs.create({ url: 'https://maps.google.com' });
+    });
     // Error / no-reviews
     document.querySelectorAll('[data-action="retry"]').forEach((btn) => {
         btn.addEventListener('click', () => runAnalyze());
