@@ -331,7 +331,8 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
 
 let analysisCancelled = false;
 
-async function stopAnalysis(): Promise<void> {
+// Stop everything and go back to the info screen.
+async function cancelAnalysis(): Promise<void> {
   analysisCancelled = true;
   stopProgressPoll();
   stopAllStepTimers();
@@ -341,6 +342,19 @@ async function stopAnalysis(): Promise<void> {
     }
   } catch { /* tab may have closed */ }
   await showInfoScreen();
+}
+
+// Stop only the data-gathering phase; runAnalyze() will continue to AI
+// with whatever reviews have been collected so far.
+async function stopGathering(): Promise<void> {
+  stopProgressPoll();
+  try {
+    if (currentTabId) {
+      await sendToTab(currentTabId, { type: 'STOP_REVIEWS' } satisfies MessageType);
+    }
+  } catch { /* tab may have closed */ }
+  // runAnalyze() is still awaiting GET_REVIEWS — the content script exits
+  // its scroll loop and returns the collected reviews, triggering Step 2.
 }
 
 // ─── Progress polling ─────────────────────────────────────────────────────────
@@ -408,11 +422,13 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
   const s2 = document.getElementById('step-2');
   const d1 = document.getElementById('step-1-detail');
   const d2 = document.getElementById('step-2-detail');
+  const summarizeNowBtn = document.getElementById('summarize-now-btn') as HTMLButtonElement | null;
 
   if (step === 1) {
     s1?.classList.replace('step-pending', 'step-active') || s1?.classList.add('step-active');
     s2?.classList.add('step-pending');
     if (d1) d1.textContent = detail ?? 'Scrolling through reviews…';
+    if (summarizeNowBtn) summarizeNowBtn.hidden = false; // show during gathering
     startStepTimer(1);
   } else {
     stopStepTimer(1);
@@ -423,6 +439,7 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
     if (d1 && detail) d1.textContent = detail;
     s2?.classList.replace('step-pending', 'step-active') || s2?.classList.add('step-active');
     if (d2) d2.textContent = 'Summarizing with AI…';
+    if (summarizeNowBtn) summarizeNowBtn.hidden = true; // hide once gathering is done
     startStepTimer(2);
   }
 }
@@ -644,8 +661,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
 
-  // Stop button
-  document.getElementById('stop-btn')?.addEventListener('click', () => stopAnalysis());
+  // Loading screen controls
+  document.getElementById('summarize-now-btn')?.addEventListener('click', () => stopGathering());
+  document.getElementById('cancel-btn')?.addEventListener('click', () => cancelAnalysis());
 
   // Error / no-reviews actions — multiple buttons share data-action="retry"
   document.querySelectorAll<HTMLElement>('[data-action="retry"]').forEach((btn) => {
