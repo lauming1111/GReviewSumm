@@ -1,4 +1,5 @@
 import type { MessageType, Review, ReviewSettings, SummaryResult } from './types.js';
+import { AI_DEFAULTS } from './config.js';
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
 
@@ -185,7 +186,7 @@ async function summarizeWithOpenAI(
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-      temperature: 0.3,
+      temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
     }),
   });
 

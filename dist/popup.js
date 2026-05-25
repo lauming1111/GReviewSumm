@@ -1,3 +1,4 @@
+import { SCROLL_CONFIG, POPUP_CONFIG } from './config.js';
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 function $(selector) {
     return document.querySelector(selector);
@@ -327,7 +328,7 @@ function startProgressPoll(tabId) {
         catch {
             // tab not ready yet — ignore
         }
-    }, 800);
+    }, POPUP_CONFIG.PROGRESS_POLL_MS);
 }
 function stopProgressPoll() {
     if (progressPollInterval !== null) {
@@ -481,7 +482,17 @@ async function runAnalyze() {
     let reviewsResponse;
     try {
         const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
-        reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews });
+        reviewsResponse = await sendToTab(currentTabId, {
+            type: 'GET_REVIEWS',
+            maxReviews,
+            scrollConfig: {
+                tabOpenWaitMs: SCROLL_CONFIG.TAB_OPEN_WAIT_MS,
+                pollIntervalMs: SCROLL_CONFIG.POLL_INTERVAL_MS,
+                scrollWaitMs: SCROLL_CONFIG.SCROLL_WAIT_MS,
+                moreReviewsWaitMs: SCROLL_CONFIG.MORE_REVIEWS_WAIT_MS,
+                maxStableRounds: SCROLL_CONFIG.MAX_STABLE_ROUNDS,
+            },
+        });
     }
     catch (err) {
         stopProgressPoll();

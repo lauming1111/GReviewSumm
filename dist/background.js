@@ -1,3 +1,4 @@
+import { AI_DEFAULTS } from './config.js';
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
 // ─── Date filtering ───────────────────────────────────────────────────────────
 function parseReviewDate(dateStr) {
@@ -164,7 +165,7 @@ async function summarizeWithOpenAI(reviews, placeName, settings, googleRating, g
         body: JSON.stringify({
             model,
             messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-            temperature: 0.3,
+            temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
         }),
     });
     if (!response.ok) {

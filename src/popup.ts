@@ -1,4 +1,5 @@
 import type { MessageType, ReviewSettings, SummaryResult } from './types.js';
+import { SCROLL_CONFIG, POPUP_CONFIG } from './config.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ function startProgressPoll(tabId: number): void {
     } catch {
       // tab not ready yet — ignore
     }
-  }, 800);
+  }, POPUP_CONFIG.PROGRESS_POLL_MS);
 }
 
 function stopProgressPoll(): void {
@@ -516,7 +517,17 @@ async function runAnalyze(): Promise<void> {
   let reviewsResponse: MessageType;
   try {
     const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
-    reviewsResponse = await sendToTab(currentTabId, { type: 'GET_REVIEWS', maxReviews } satisfies MessageType);
+    reviewsResponse = await sendToTab(currentTabId, {
+      type: 'GET_REVIEWS',
+      maxReviews,
+      scrollConfig: {
+        tabOpenWaitMs:    SCROLL_CONFIG.TAB_OPEN_WAIT_MS,
+        pollIntervalMs:   SCROLL_CONFIG.POLL_INTERVAL_MS,
+        scrollWaitMs:     SCROLL_CONFIG.SCROLL_WAIT_MS,
+        moreReviewsWaitMs: SCROLL_CONFIG.MORE_REVIEWS_WAIT_MS,
+        maxStableRounds:  SCROLL_CONFIG.MAX_STABLE_ROUNDS,
+      },
+    } satisfies MessageType);
   } catch (err) {
     stopProgressPoll();
     console.error('[Review Lens] Message error:', err);

@@ -25,10 +25,18 @@ export interface ReviewSettings {
   openaiModel?: string;
 }
 
+export interface ScrollConfig {
+  tabOpenWaitMs: number;
+  pollIntervalMs: number;
+  scrollWaitMs: number;
+  moreReviewsWaitMs: number;
+  maxStableRounds: number;
+}
+
 export type MessageType =
   | { type: 'GET_BASIC_INFO' }
   | { type: 'BASIC_INFO'; payload: { placeName: string; googleRating?: number; googleReviewCount?: number; category?: string; address?: string; phone?: string } }
-  | { type: 'GET_REVIEWS'; maxReviews?: number }
+  | { type: 'GET_REVIEWS'; maxReviews?: number; scrollConfig?: ScrollConfig }
   | { type: 'REVIEWS_DATA'; payload: { reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number } }
   | { type: 'SUMMARIZE'; payload: { reviews: Review[]; placeName: string; settings: ReviewSettings; googleRating?: number; googleReviewCount?: number } }
   | { type: 'SUMMARY_RESULT'; payload: SummaryResult }
