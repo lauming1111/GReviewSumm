@@ -31,4 +31,6 @@ export const AI_DEFAULTS = {
     OPENAI_MODEL: 'gpt-4o-mini',
     /** OpenAI temperature (0 = deterministic, 1 = creative) */
     OPENAI_TEMPERATURE: 0.3,
+    /** How many times to retry the AI call when it returns invalid JSON */
+    MAX_RETRIES: 3,
 };

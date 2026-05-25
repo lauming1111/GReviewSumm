@@ -176,13 +176,28 @@ async function summarizeWithOpenAI(reviews, placeName, settings, googleRating, g
     const raw = data.choices?.[0]?.message?.content ?? '';
     return buildResult(parseAIResponse(raw), placeName, avgRating, googleReviewCount ?? reviews.length);
 }
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+// Re-runs fn() if it throws a SyntaxError (invalid JSON from the model).
+// Any other error (network failure, HTTP error, etc.) propagates immediately.
+async function withRetry(fn, maxAttempts = AI_DEFAULTS.MAX_RETRIES) {
+    for (let attempt = 1;; attempt++) {
+        try {
+            return await fn();
+        }
+        catch (err) {
+            if (!(err instanceof SyntaxError) || attempt >= maxAttempts)
+                throw err;
+            console.warn(`[Review Lens] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
+        }
+    }
+}
 // ─── Message listener ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'SUMMARIZE') {
         const { reviews, placeName, settings, googleRating, googleReviewCount } = message.payload;
         console.log(`[Review Lens] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
         const summarize = settings.aiProvider === 'openai' ? summarizeWithOpenAI : summarizeWithOllama;
-        summarize(reviews, placeName, settings, googleRating, googleReviewCount)
+        withRetry(() => summarize(reviews, placeName, settings, googleRating, googleReviewCount))
             .then((result) => sendResponse({ type: 'SUMMARY_RESULT', payload: result }))
             .catch((err) => sendResponse({
             type: 'ERROR',

@@ -43,4 +43,7 @@ export const AI_DEFAULTS = {
 
   /** OpenAI temperature (0 = deterministic, 1 = creative) */
   OPENAI_TEMPERATURE: 0.3,
+
+  /** How many times to retry the AI call when it returns invalid JSON */
+  MAX_RETRIES: 3,
 } as const;

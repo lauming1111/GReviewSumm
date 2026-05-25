@@ -205,6 +205,21 @@ async function summarizeWithOpenAI(
   );
 }
 
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+
+// Re-runs fn() if it throws a SyntaxError (invalid JSON from the model).
+// Any other error (network failure, HTTP error, etc.) propagates immediately.
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = AI_DEFAULTS.MAX_RETRIES): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof SyntaxError) || attempt >= maxAttempts) throw err;
+      console.warn(`[Review Lens] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
+    }
+  }
+}
+
 // ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
@@ -214,7 +229,7 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendRespons
 
     const summarize = settings.aiProvider === 'openai' ? summarizeWithOpenAI : summarizeWithOllama;
 
-    summarize(reviews, placeName, settings, googleRating, googleReviewCount)
+    withRetry(() => summarize(reviews, placeName, settings, googleRating, googleReviewCount))
       .then((result) => sendResponse({ type: 'SUMMARY_RESULT', payload: result } satisfies MessageType))
       .catch((err: unknown) => sendResponse({
         type: 'ERROR',
