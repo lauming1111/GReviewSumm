@@ -3,6 +3,10 @@ import { AI_DEFAULTS } from './config.js';
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ─── Date filtering ───────────────────────────────────────────────────────────
 
 function parseReviewDate(dateStr?: string): Date | null {
@@ -46,13 +50,92 @@ function getCutoffDate(mode: ReviewSettings['reviewMode']): Date | null {
 }
 
 function filterReviews(reviews: Review[], settings: ReviewSettings): Review[] {
-  if (settings.reviewMode === 'all') return reviews;
+  if (settings.reviewMode === 'all') return reviews.slice(0, settings.reviewCount);
   if (settings.reviewMode === 'recent') return reviews.slice(0, settings.reviewCount);
+
   const cutoff = getCutoffDate(settings.reviewMode);
   if (!cutoff) return reviews.slice(0, settings.reviewCount);
-  return reviews
-    .filter((r) => { const d = parseReviewDate(r.date); return d ? d >= cutoff : false; })
-    .slice(0, settings.reviewCount);
+
+  // Reviews whose date string cannot be parsed are KEPT, not dropped. Dropping
+  // them meant a single Google layout or locale change silently emptied every
+  // time-window result set.
+  let unparseable = 0;
+  const kept = reviews.filter((r) => {
+    const d = parseReviewDate(r.date);
+    if (!d) { unparseable++; return true; }
+    return d >= cutoff;
+  });
+  if (unparseable > 0) {
+    console.warn(`[GReviewSumm] ${unparseable} review(s) had an unparseable date — kept rather than dropped.`);
+  }
+  return kept.slice(0, settings.reviewCount);
+}
+
+// ─── Prompt sampling ──────────────────────────────────────────────────────────
+
+function truncateReview(r: Review): Review {
+  if (r.text.length <= AI_DEFAULTS.MAX_REVIEW_CHARS) return r;
+  return { ...r, text: `${r.text.slice(0, AI_DEFAULTS.MAX_REVIEW_CHARS)}…` };
+}
+
+function isComplaint(r: Review): boolean {
+  return r.rating > 0 && r.rating <= 2;
+}
+
+/**
+ * Pick at most MAX_REVIEWS_TO_AI reviews to serialize into the prompt.
+ *
+ * Sending everything produced a ~68k-token prompt for a 1000-review place —
+ * far beyond any local model's context, so the model silently read a fraction
+ * of it while the user paid full prompt-processing latency.
+ *
+ * Strategy: keep every 1–2★ review (complaints are the scarcest, highest-signal
+ * input and are what "cons" is built from), then stride-sample the remainder so
+ * the selection spans the full time range rather than only the newest reviews.
+ */
+function selectReviewsForPrompt(reviews: Review[]): Review[] {
+  const cap = AI_DEFAULTS.MAX_REVIEWS_TO_AI;
+  if (reviews.length <= cap) return enforceCharBudget(reviews.map(truncateReview));
+
+  const complaints = reviews.filter(isComplaint);
+  const rest = reviews.filter((r) => !isComplaint(r));
+
+  const kept: Review[] = complaints.slice(0, cap);
+  const chosen = new Set<Review>(kept);
+
+  if (kept.length < cap && rest.length > 0) {
+    const budget = cap - kept.length;
+    const stride = Math.max(1, Math.floor(rest.length / budget));
+    for (let i = 0; i < rest.length && kept.length < cap; i += stride) {
+      kept.push(rest[i]);
+      chosen.add(rest[i]);
+    }
+    // Stride rounding can leave room — top up with anything not yet chosen.
+    for (let i = 0; i < rest.length && kept.length < cap; i++) {
+      if (!chosen.has(rest[i])) { kept.push(rest[i]); chosen.add(rest[i]); }
+    }
+  }
+
+  return enforceCharBudget(kept.map(truncateReview));
+}
+
+/**
+ * Trim the selection so the serialized review text fits MAX_PROMPT_CHARS.
+ * The count cap alone is not enough: 250 reviews at MAX_REVIEW_CHARS each
+ * would still overflow the context window. Complaints sort first in `kept`,
+ * so they survive trimming.
+ */
+function enforceCharBudget(reviews: Review[]): Review[] {
+  const PER_REVIEW_OVERHEAD = 24; // "[Review 999] ⭐4/5 — " plus the "\n\n" join
+  let used = 0;
+  const out: Review[] = [];
+  for (const r of reviews) {
+    const cost = r.text.length + PER_REVIEW_OVERHEAD;
+    if (used + cost > AI_DEFAULTS.MAX_PROMPT_CHARS) break;
+    out.push(r);
+    used += cost;
+  }
+  return out;
 }
 
 // ─── Shared prompt + result builder ──────────────────────────────────────────
@@ -86,16 +169,33 @@ Rules:
 - Be concise but informative`;
 }
 
+/** Parses the MODEL's JSON output. A SyntaxError here is retryable. */
 function parseAIResponse(raw: string): ReturnType<typeof JSON.parse> {
   const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   return JSON.parse(cleaned);
+}
+
+/**
+ * Parses an HTTP response body. A non-JSON body here means the provider is
+ * misbehaving, not the model — so this throws a plain Error rather than a
+ * SyntaxError, keeping it out of the retry path.
+ */
+async function readJsonBody(response: Response, provider: string): Promise<ReturnType<typeof JSON.parse>> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`${provider} returned a non-JSON response: ${body.slice(0, 200)}`);
+  }
 }
 
 function buildResult(
   parsed: ReturnType<typeof JSON.parse>,
   placeName: string,
   avgRating: number,
-  totalReviews: number
+  totalReviews: number,
+  analyzedCount: number,
+  collectedCount: number
 ): SummaryResult {
   return {
     placeName,
@@ -107,6 +207,8 @@ function buildResult(
     summary: parsed.summary ?? '',
     topThemes: parsed.topThemes ?? [],
     notableStaff: parsed.notableStaff ?? [],
+    analyzedCount,
+    collectedCount,
   };
 }
 
@@ -116,7 +218,59 @@ function computeAvg(selected: Review[], googleRating?: number): number {
   return googleRating ?? (rated.reduce((s, r) => s + r.rating, 0) / (rated.length || 1));
 }
 
-// ─── Ollama ───────────────────────────────────────────────────────────────────
+// ─── fetch with timeout ───────────────────────────────────────────────────────
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_DEFAULTS.REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        `Request timed out after ${Math.round(AI_DEFAULTS.REQUEST_TIMEOUT_MS / 1000)}s. ` +
+        'The model may be too slow for this many reviews — try a smaller review scope or a faster model.'
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Shared OpenAI-compatible chat completion call. */
+async function callOpenAICompatible(
+  label: string,
+  url: string,
+  apiKey: string | undefined,
+  model: string,
+  prompt: string
+): Promise<string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+  const response = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
+      max_tokens: AI_DEFAULTS.MAX_OUTPUT_TOKENS,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${label} API error ${response.status}: ${await response.text()}`);
+  }
+
+  const data = await readJsonBody(response, label);
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
+// ─── Providers — each returns the model's raw text ───────────────────────────
+
+type ProviderCall = (prompt: string, settings: ReviewSettings) => Promise<string>;
 
 async function checkOllama(): Promise<void> {
   try {
@@ -129,120 +283,77 @@ async function checkOllama(): Promise<void> {
   }
 }
 
-async function summarizeWithOllama(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
-
-  await checkOllama();
-
+const callOllama: ProviderCall = async (prompt, settings) => {
   const model = settings.ollamaModel ?? AI_DEFAULTS.OLLAMA_MODEL;
   const p = settings.ollamaParams ?? {};
 
-  // Build Ollama options only for params that were explicitly set
-  const options: Record<string, number> = {};
+  const options: Record<string, number> = { num_predict: AI_DEFAULTS.MAX_OUTPUT_TOKENS };
   if (p.temperature   !== undefined) options.temperature    = p.temperature;
   if (p.topK          !== undefined) options.top_k          = p.topK;
   if (p.topP          !== undefined) options.top_p          = p.topP;
   if (p.numCtx        !== undefined) options.num_ctx        = p.numCtx;
   if (p.repeatPenalty !== undefined) options.repeat_penalty = p.repeatPenalty;
 
-  console.log(`[GReviewSumm] Ollama model: ${model}, reviews: ${selected.length}`, options);
-
-  const response = await fetch(`${OLLAMA_BASE}/api/generate`, {
+  const response = await fetchWithTimeout(`${OLLAMA_BASE}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      prompt: buildPrompt(selected, placeName, reviews.length),
-      stream: false,
-      ...(Object.keys(options).length > 0 && { options }),
-    }),
+    body: JSON.stringify({ model, prompt, stream: false, options }),
   });
 
   if (!response.ok) {
     throw new Error(`Ollama API error ${response.status}: ${await response.text()}`);
   }
 
-  const data = await response.json();
-  return buildResult(
-    parseAIResponse(data.response ?? ''),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
+  const data = await readJsonBody(response, 'Ollama');
+  return data.response ?? '';
+};
 
-// ─── OpenAI ───────────────────────────────────────────────────────────────────
-
-async function summarizeWithOpenAI(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
+const callOpenAI: ProviderCall = (prompt, settings) => {
   if (!settings.openaiApiKey) {
     throw new Error('OpenAI API key is not set. Go to ⚙ Settings and add your key.');
   }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
-  const model = settings.openaiModel ?? AI_DEFAULTS.OPENAI_MODEL;
-  console.log(`[GReviewSumm] OpenAI model: ${model}, reviews: ${selected.length}`);
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.openaiApiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-      temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI API error ${response.status}: ${body}`);
-  }
-
-  const data = await response.json();
-  const raw: string = data.choices?.[0]?.message?.content ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
+  return callOpenAICompatible(
+    'OpenAI',
+    'https://api.openai.com/v1/chat/completions',
+    settings.openaiApiKey,
+    settings.openaiModel ?? AI_DEFAULTS.OPENAI_MODEL,
+    prompt
   );
-}
+};
 
-// ─── Anthropic Claude ─────────────────────────────────────────────────────────
+const callGroq: ProviderCall = (prompt, settings) => {
+  if (!settings.groqApiKey) {
+    throw new Error('Groq API key is not set. Go to ⚙ Settings and add your key.');
+  }
+  return callOpenAICompatible(
+    'Groq',
+    'https://api.groq.com/openai/v1/chat/completions',
+    settings.groqApiKey,
+    settings.groqModel ?? AI_DEFAULTS.GROQ_MODEL,
+    prompt
+  );
+};
 
-async function summarizeWithAnthropic(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
+const callXAI: ProviderCall = (prompt, settings) => {
+  if (!settings.xaiApiKey) {
+    throw new Error('xAI API key is not set. Go to ⚙ Settings and add your key.');
+  }
+  return callOpenAICompatible(
+    'xAI',
+    'https://api.x.ai/v1/chat/completions',
+    settings.xaiApiKey,
+    settings.xaiModel ?? AI_DEFAULTS.XAI_MODEL,
+    prompt
+  );
+};
+
+const callAnthropic: ProviderCall = async (prompt, settings) => {
   if (!settings.anthropicApiKey) {
     throw new Error('Anthropic API key is not set. Go to ⚙ Settings and add your key.');
   }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
   const model = settings.anthropicModel ?? AI_DEFAULTS.ANTHROPIC_MODEL;
-  console.log(`[GReviewSumm] Anthropic model: ${model}, reviews: ${selected.length}`);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -251,251 +362,157 @@ async function summarizeWithAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
+      max_tokens: AI_DEFAULTS.MAX_OUTPUT_TOKENS,
+      messages: [{ role: 'user', content: prompt }],
     }),
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Anthropic API error ${response.status}: ${body}`);
+    throw new Error(`Anthropic API error ${response.status}: ${await response.text()}`);
   }
 
-  const data = await response.json();
-  const raw: string = data.content?.[0]?.text ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
+  const data = await readJsonBody(response, 'Anthropic');
+  return data.content?.[0]?.text ?? '';
+};
 
-// ─── Google Gemini ────────────────────────────────────────────────────────────
-
-async function summarizeWithGemini(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
+const callGemini: ProviderCall = async (prompt, settings) => {
   if (!settings.geminiApiKey) {
     throw new Error('Google Gemini API key is not set. Go to ⚙ Settings and add your key.');
   }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
   const model = settings.geminiModel ?? AI_DEFAULTS.GEMINI_MODEL;
-  console.log(`[GReviewSumm] Gemini model: ${model}, reviews: ${selected.length}`);
-
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiApiKey}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildPrompt(selected, placeName, reviews.length) }] }],
-      generationConfig: { temperature: 0.3 },
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
+        maxOutputTokens: AI_DEFAULTS.MAX_OUTPUT_TOKENS,
+      },
     }),
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${body}`);
+    throw new Error(`Gemini API error ${response.status}: ${await response.text()}`);
   }
 
-  const data = await response.json();
-  const raw: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
+  const data = await readJsonBody(response, 'Gemini');
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+};
 
-// ─── Groq ─────────────────────────────────────────────────────────────────────
-
-async function summarizeWithGroq(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
-  if (!settings.groqApiKey) {
-    throw new Error('Groq API key is not set. Go to ⚙ Settings and add your key.');
-  }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
-  const model = settings.groqModel ?? AI_DEFAULTS.GROQ_MODEL;
-  console.log(`[GReviewSumm] Groq model: ${model}, reviews: ${selected.length}`);
-
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.groqApiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Groq API error ${response.status}: ${body}`);
-  }
-
-  const data = await response.json();
-  const raw: string = data.choices?.[0]?.message?.content ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
-
-// ─── xAI (Grok) ──────────────────────────────────────────────────────────────
-
-async function summarizeWithXAI(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
-  if (!settings.xaiApiKey) {
-    throw new Error('xAI API key is not set. Go to ⚙ Settings and add your key.');
-  }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
-  const model = settings.xaiModel ?? AI_DEFAULTS.XAI_MODEL;
-  console.log(`[GReviewSumm] xAI/Grok model: ${model}, reviews: ${selected.length}`);
-
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.xaiApiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`xAI API error ${response.status}: ${body}`);
-  }
-
-  const data = await response.json();
-  const raw: string = data.choices?.[0]?.message?.content ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
-
-// ─── Custom OpenAI-compatible endpoint ────────────────────────────────────────
-
-async function summarizeWithCustom(
-  reviews: Review[],
-  placeName: string,
-  settings: ReviewSettings,
-  googleRating?: number,
-  googleReviewCount?: number
-): Promise<SummaryResult> {
+const callCustom: ProviderCall = async (prompt, settings) => {
   if (!settings.customEndpoint) {
     throw new Error('Custom endpoint URL is not set. Go to ⚙ Settings and add your endpoint URL.');
   }
-
-  const selected = filterReviews(reviews, settings);
-  const avgRating = computeAvg(selected, googleRating);
-  const model = settings.customModel || 'local-model';
   const baseUrl = settings.customEndpoint.replace(/\/+$/, '');
   const url = `${baseUrl}/chat/completions`;
 
-  console.log(`[GReviewSumm] Custom endpoint: ${url}, model: ${model}, reviews: ${selected.length}`);
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (settings.customApiKey) headers['Authorization'] = `Bearer ${settings.customApiKey}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: buildPrompt(selected, placeName, reviews.length) }],
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Custom API error ${response.status}: ${body}`);
+  try {
+    return await callOpenAICompatible(
+      'Custom endpoint',
+      url,
+      settings.customApiKey,
+      settings.customModel || 'local-model',
+      prompt
+    );
+  } catch (err) {
+    // A bare TypeError from fetch on a non-localhost host almost always means
+    // the extension lacks host permission for it.
+    if (err instanceof TypeError) {
+      throw new Error(
+        `Could not reach ${baseUrl}. If this is not a localhost address, the extension needs ` +
+        'permission for that host — re-save the endpoint in ⚙ Settings and accept the permission prompt.'
+      );
+    }
+    throw err;
   }
+};
 
-  const data = await response.json();
-  const raw: string = data.choices?.[0]?.message?.content ?? '';
-  return buildResult(
-    parseAIResponse(raw),
-    placeName,
-    avgRating,
-    googleReviewCount ?? reviews.length
-  );
-}
+const PROVIDER_CALL: Record<string, ProviderCall> = {
+  ollama:    callOllama,
+  openai:    callOpenAI,
+  anthropic: callAnthropic,
+  gemini:    callGemini,
+  groq:      callGroq,
+  xai:       callXAI,
+  custom:    callCustom,
+};
 
 // ─── Retry helper ─────────────────────────────────────────────────────────────
 
-// Re-runs fn() if it throws a SyntaxError (invalid JSON from the model).
-// Any other error (network failure, HTTP error, etc.) propagates immediately.
+/**
+ * Re-runs fn() only when the MODEL returned malformed JSON (SyntaxError from
+ * parseAIResponse). HTTP errors, timeouts, missing keys, and non-JSON provider
+ * responses all propagate immediately — retrying those just burns time.
+ *
+ * The caller passes a closure containing only the network call and the parse;
+ * prompt construction stays outside so it is not repeated on every attempt.
+ */
 async function withRetry<T>(fn: () => Promise<T>, maxAttempts = AI_DEFAULTS.MAX_RETRIES): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (err) {
       if (!(err instanceof SyntaxError) || attempt >= maxAttempts) throw err;
-      console.warn(`[GReviewSumm] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying…`);
+      const delay = AI_DEFAULTS.RETRY_BACKOFF_MS * 2 ** (attempt - 1);
+      console.warn(`[GReviewSumm] Invalid JSON on attempt ${attempt}/${maxAttempts}, retrying in ${delay}ms…`);
+      await sleep(delay);
     }
   }
 }
 
-// ─── Provider routing ─────────────────────────────────────────────────────────
+// ─── Orchestration ────────────────────────────────────────────────────────────
 
-type SummarizeFn = typeof summarizeWithOllama;
+async function summarize(
+  reviews: Review[],
+  placeName: string,
+  settings: ReviewSettings,
+  googleRating?: number,
+  googleReviewCount?: number
+): Promise<SummaryResult> {
+  const provider = settings.aiProvider ?? 'ollama';
+  const call = PROVIDER_CALL[provider] ?? callOllama;
 
-const PROVIDER_FN: Record<string, SummarizeFn> = {
-  ollama:    summarizeWithOllama,
-  openai:    summarizeWithOpenAI,
-  anthropic: summarizeWithAnthropic,
-  gemini:    summarizeWithGemini,
-  groq:      summarizeWithGroq,
-  xai:       summarizeWithXAI,
-  custom:    summarizeWithCustom,
-};
+  const filtered = filterReviews(reviews, settings);
+  if (filtered.length === 0) {
+    throw new Error('No reviews matched the selected time range. Try widening the review scope in ⚙ Settings.');
+  }
+
+  // Everything below is computed ONCE — the retry closure covers only the
+  // model call and the parse of its output.
+  const selected  = selectReviewsForPrompt(filtered);
+  const avgRating = computeAvg(filtered, googleRating);
+  const prompt    = buildPrompt(selected, placeName, filtered.length);
+
+  if (provider === 'ollama') await checkOllama();
+
+  console.log(
+    `[GReviewSumm] ${provider}: ${selected.length} of ${filtered.length} reviews in prompt ` +
+    `(~${Math.round(prompt.length / 4).toLocaleString()} tokens)`
+  );
+
+  const parsed = await withRetry(async () => parseAIResponse(await call(prompt, settings)));
+
+  return buildResult(
+    parsed,
+    placeName,
+    avgRating,
+    googleReviewCount ?? reviews.length,
+    selected.length,
+    filtered.length
+  );
+}
 
 // ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
   if (message.type === 'SUMMARIZE') {
     const { reviews, placeName, settings, googleRating, googleReviewCount } = message.payload;
-    const provider = settings.aiProvider ?? 'ollama';
-    console.log(`[GReviewSumm] SUMMARIZE via ${provider} for "${placeName}"`);
+    console.log(`[GReviewSumm] SUMMARIZE via ${settings.aiProvider ?? 'ollama'} for "${placeName}"`);
 
-    const summarize = PROVIDER_FN[provider] ?? summarizeWithOllama;
-
-    withRetry(() => summarize(reviews, placeName, settings, googleRating, googleReviewCount))
+    summarize(reviews, placeName, settings, googleRating, googleReviewCount)
       .then((result) => sendResponse({ type: 'SUMMARY_RESULT', payload: result } satisfies MessageType))
       .catch((err: unknown) => sendResponse({
         type: 'ERROR',

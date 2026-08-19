@@ -1,5 +1,5 @@
-import type { MessageType, ReviewSettings, SummaryResult } from './types.js';
-import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS } from './config.js';
+import type { MessageType, Review, ReviewSettings, SummaryResult } from './types.js';
+import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS, CACHE_CONFIG } from './config.js';
 import { encryptApiKey, decryptApiKey } from './crypto.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -131,9 +131,12 @@ function readKeyFromUI(inputId: string, provider: string, existingKey?: string):
 
 // ─── Provider / count field visibility ───────────────────────────────────────
 
-function updateCountFieldVisibility(mode: ReviewSettings['reviewMode']): void {
+// The cap is honoured in every mode now, including 'all', so the field is
+// always shown — previously 'all' ignored reviewCount AND hid the input,
+// leaving no way to limit a very large place.
+function updateCountFieldVisibility(_mode: ReviewSettings['reviewMode']): void {
   const wrapper = document.getElementById('count-field-wrapper');
-  if (wrapper) wrapper.hidden = mode === 'all';
+  if (wrapper) wrapper.hidden = false;
 }
 
 function updateProviderVisibility(provider: ReviewSettings['aiProvider']): void {
@@ -270,6 +273,25 @@ function readSettingsFromUI(): ReviewSettings {
   };
 }
 
+/**
+ * A custom OpenAI-compatible endpoint can live on any host, which the narrow
+ * install-time host_permissions do not cover. Request it at save time instead.
+ *
+ * Must be the FIRST await in a click handler — chrome.permissions.request needs
+ * the user gesture still to be active. It resolves true without prompting when
+ * the permission is already granted, so no contains() pre-check.
+ */
+async function ensureCustomEndpointPermission(settings: ReviewSettings): Promise<void> {
+  if (settings.aiProvider !== 'custom' || !settings.customEndpoint) return;
+  try {
+    const { origin, hostname } = new URL(settings.customEndpoint);
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return;
+    await chrome.permissions.request({ origins: [`${origin}/*`] });
+  } catch {
+    // Malformed URL, or the user declined — the summarize call surfaces a clear error.
+  }
+}
+
 // ─── Open settings ────────────────────────────────────────────────────────────
 
 async function openSettings(): Promise<void> {
@@ -286,35 +308,114 @@ interface CacheEntry {
   timestamp: number;
 }
 
-function normalizeUrl(url: string): string {
+interface ReviewCacheEntry {
+  reviews: Review[];
+  placeName: string;
+  googleRating?: number;
+  googleReviewCount?: number;
+  /** Ceiling this set was scraped under — a larger request must re-scrape. */
+  maxReviews: number;
+  timestamp: number;
+}
+
+const SUMMARY_CACHE_KEY = 'gReviewSummCache';
+const REVIEW_CACHE_KEY  = 'gReviewSummReviewCache';
+
+/**
+ * Stable identifier for the place shown in the current tab.
+ *
+ * Using only origin + pathname collapsed EVERY google.com/search knowledge
+ * panel onto the single key "https://www.google.com/search", so the second
+ * business analyzed was served the first business's summary.
+ */
+function placeKey(url: string, placeName?: string): string {
   try {
     const u = new URL(url);
-    return u.origin + u.pathname;
+    // Maps URLs carry the place in the pathname (/maps/place/<name>/@lat,lng…).
+    if (u.pathname.startsWith('/maps')) return `${u.origin}${u.pathname}`;
+    const q = u.searchParams.get('q');
+    if (q) return `${u.origin}${u.pathname}?q=${q}`;
+    return placeName ? `${u.origin}${u.pathname}#${placeName}` : `${u.origin}${u.pathname}`;
   } catch {
-    return url;
+    return placeName ? `${url}#${placeName}` : url;
   }
 }
 
-async function getCachedResult(url: string): Promise<CacheEntry | null> {
+/** The model actually in use for the selected provider. */
+function activeModel(s: ReviewSettings): string {
+  switch (s.aiProvider) {
+    case 'openai':    return s.openaiModel    ?? AI_DEFAULTS.OPENAI_MODEL;
+    case 'anthropic': return s.anthropicModel ?? AI_DEFAULTS.ANTHROPIC_MODEL;
+    case 'gemini':    return s.geminiModel    ?? AI_DEFAULTS.GEMINI_MODEL;
+    case 'groq':      return s.groqModel      ?? AI_DEFAULTS.GROQ_MODEL;
+    case 'xai':       return s.xaiModel       ?? AI_DEFAULTS.XAI_MODEL;
+    case 'custom':    return s.customModel    ?? 'local-model';
+    default:          return s.ollamaModel    ?? AI_DEFAULTS.OLLAMA_MODEL;
+  }
+}
+
+/**
+ * Summary cache key. Includes provider, model, and scope — without them a
+ * summary produced by Ollama was still returned after switching to Anthropic
+ * or changing the review scope.
+ */
+function summaryKey(url: string, s: ReviewSettings, placeName?: string): string {
+  return `${placeKey(url, placeName)}::${s.aiProvider ?? 'ollama'}::${activeModel(s)}::${s.reviewMode}`;
+}
+
+function readStore<T>(storeKey: string): Promise<Record<string, T>> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['gReviewSummCache'], (data) => {
-      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
-      const entry = cache[normalizeUrl(url)];
-      if (!entry) return resolve(null);
-      if (Date.now() - entry.timestamp > 24 * 60 * 60 * 1000) return resolve(null);
-      resolve(entry);
+    chrome.storage.local.get([storeKey], (data) => {
+      resolve(((data as Record<string, unknown>)[storeKey] ?? {}) as Record<string, T>);
     });
   });
 }
 
-async function setCachedResult(url: string, result: SummaryResult): Promise<void> {
+function writeStore<T>(storeKey: string, map: Record<string, T>): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['gReviewSummCache'], (data) => {
-      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
-      cache[normalizeUrl(url)] = { result, timestamp: Date.now() };
-      chrome.storage.local.set({ gReviewSummCache: cache }, resolve);
-    });
+    chrome.storage.local.set({ [storeKey]: map }, resolve);
   });
+}
+
+/** Drop expired entries and cap the map, newest first. */
+function prune<T extends { timestamp: number }>(map: Record<string, T>): Record<string, T> {
+  const now = Date.now();
+  const live = Object.entries(map)
+    .filter(([, e]) => now - e.timestamp <= CACHE_CONFIG.TTL_MS)
+    .sort((a, b) => b[1].timestamp - a[1].timestamp)
+    .slice(0, CACHE_CONFIG.MAX_ENTRIES);
+  return Object.fromEntries(live) as Record<string, T>;
+}
+
+async function getCachedResult(url: string, settings: ReviewSettings, placeName?: string): Promise<CacheEntry | null> {
+  const cache = await readStore<CacheEntry>(SUMMARY_CACHE_KEY);
+  const pruned = prune(cache);
+  // Evict expired entries on read — they used to linger forever.
+  if (Object.keys(pruned).length !== Object.keys(cache).length) {
+    await writeStore(SUMMARY_CACHE_KEY, pruned);
+  }
+  return pruned[summaryKey(url, settings, placeName)] ?? null;
+}
+
+async function setCachedResult(url: string, settings: ReviewSettings, result: SummaryResult): Promise<void> {
+  const cache = await readStore<CacheEntry>(SUMMARY_CACHE_KEY);
+  cache[summaryKey(url, settings, result.placeName)] = { result, timestamp: Date.now() };
+  await writeStore(SUMMARY_CACHE_KEY, prune(cache));
+}
+
+async function getCachedReviews(url: string, maxReviews: number, placeName?: string): Promise<ReviewCacheEntry | null> {
+  const cache = await readStore<ReviewCacheEntry>(REVIEW_CACHE_KEY);
+  const entry = prune(cache)[placeKey(url, placeName)];
+  if (!entry) return null;
+  // A larger request than the cached set was scraped under must re-scrape.
+  if (entry.maxReviews < maxReviews && entry.reviews.length >= entry.maxReviews) return null;
+  return entry;
+}
+
+async function setCachedReviews(url: string, entry: ReviewCacheEntry): Promise<void> {
+  const cache = await readStore<ReviewCacheEntry>(REVIEW_CACHE_KEY);
+  cache[placeKey(url, entry.placeName)] = entry;
+  await writeStore(REVIEW_CACHE_KEY, prune(cache));
 }
 
 function timeAgo(timestamp: number): string {
@@ -328,30 +429,21 @@ function timeAgo(timestamp: number): string {
 }
 
 async function getAllCacheEntries(): Promise<Array<{ key: string; entry: CacheEntry }>> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['gReviewSummCache'], (data) => {
-      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
-      const entries = Object.entries(cache)
-        .map(([key, entry]) => ({ key, entry }))
-        .sort((a, b) => b.entry.timestamp - a.entry.timestamp);
-      resolve(entries);
-    });
-  });
+  const cache = await readStore<CacheEntry>(SUMMARY_CACHE_KEY);
+  return Object.entries(prune(cache))
+    .map(([key, entry]) => ({ key, entry }))
+    .sort((a, b) => b.entry.timestamp - a.entry.timestamp);
 }
 
 async function deleteHistoryEntry(key: string): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['gReviewSummCache'], (data) => {
-      const cache = (data.gReviewSummCache ?? {}) as Record<string, CacheEntry>;
-      delete cache[key];
-      chrome.storage.local.set({ gReviewSummCache: cache }, resolve);
-    });
-  });
+  const cache = await readStore<CacheEntry>(SUMMARY_CACHE_KEY);
+  delete cache[key];
+  await writeStore(SUMMARY_CACHE_KEY, cache);
 }
 
 async function clearAllHistory(): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.remove(['gReviewSummCache'], resolve);
+    chrome.storage.local.remove([SUMMARY_CACHE_KEY, REVIEW_CACHE_KEY], () => resolve());
   });
 }
 
@@ -483,7 +575,13 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
 
   if (starsEl)    starsEl.textContent    = renderStars(data.averageRating);
   if (ratingEl)   ratingEl.textContent   = `${data.averageRating} / 5`;
-  if (reviewCount) reviewCount.textContent = `${data.totalReviews.toLocaleString()} reviews analyzed`;
+  if (reviewCount) {
+    const { analyzedCount: a, collectedCount: c } = data;
+    reviewCount.textContent =
+      a !== undefined && c !== undefined && a < c
+        ? `${a.toLocaleString()} of ${c.toLocaleString()} reviews analyzed`
+        : `${(c ?? data.totalReviews).toLocaleString()} reviews analyzed`;
+  }
   if (summaryEl)  summaryEl.textContent  = data.summary;
 
   if (prosList) {
@@ -634,6 +732,7 @@ function setLoadingStep(step: 1 | 2, detail?: string): void {
 
 let currentTabUrl = '';
 let currentTabId  = 0;
+let currentPlaceName: string | undefined;
 
 /** Returns true when the active tab is a supported Google Maps / Search page. */
 function isSupportedPage(url: string): boolean {
@@ -669,6 +768,7 @@ async function showInfoScreen(): Promise<void> {
       const starsEl = $('[data-field="info-stars"]');
       const ratingEl = $('[data-field="info-rating"]');
       const countEl = $('[data-field="info-review-count"]');
+      currentPlaceName = placeName;
       if (nameEl)   nameEl.textContent   = placeName;
       if (starsEl)  starsEl.textContent  = googleRating ? renderStars(googleRating) : '';
       if (ratingEl) ratingEl.textContent = googleRating ? `${googleRating} / 5` : '';
@@ -696,18 +796,16 @@ async function showInfoScreen(): Promise<void> {
     if (nameEl) nameEl.textContent = 'Open a business on Google Maps';
   }
 
-  const cached = await getCachedResult(currentTabUrl);
+  const settings = await getSettings();
+  const cached = await getCachedResult(currentTabUrl, settings, currentPlaceName);
   if (cached) { renderResult(cached.result, cached.timestamp); return; }
-
-  const viewCacheBtn = document.getElementById('view-cache-btn') as HTMLButtonElement | null;
-  if (viewCacheBtn) viewCacheBtn.hidden = true;
 
   setScreen('info');
 }
 
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 
-async function runAnalyze(): Promise<void> {
+async function runAnalyze(forceFresh = false): Promise<void> {
   analysisCancelled = false;
   setScreen('loading');
   setLoadingStep(1);
@@ -721,60 +819,98 @@ async function runAnalyze(): Promise<void> {
 
   if (!currentTabId) { showError('Cannot access current tab.'); return; }
 
-  startProgressPoll(currentTabId);
+  // reviewCount is now the scrape ceiling in every mode, capped by MAX_REVIEWS_ALL.
+  const maxReviews = Math.min(settings.reviewCount, SCROLL_CONFIG.MAX_REVIEWS_ALL);
 
-  let reviewsResponse: MessageType;
-  try {
-    const maxReviews = settings.reviewMode === 'recent' ? settings.reviewCount : 10000;
-    reviewsResponse = await sendToTab(currentTabId, {
-      type: 'GET_REVIEWS',
-      maxReviews,
-      scrollConfig: {
-        tabOpenWaitMs:     SCROLL_CONFIG.TAB_OPEN_WAIT_MS,
-        pollIntervalMs:    SCROLL_CONFIG.POLL_INTERVAL_MS,
-        scrollWaitMs:      SCROLL_CONFIG.SCROLL_WAIT_MS,
-        moreReviewsWaitMs: SCROLL_CONFIG.MORE_REVIEWS_WAIT_MS,
-        maxStableRounds:   SCROLL_CONFIG.MAX_STABLE_ROUNDS,
-      },
-    } satisfies MessageType);
-  } catch (err) {
-    stopProgressPoll();
-    console.error('[GReviewSumm] Message error:', err);
-    showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
-    return;
-  }
+  let reviews: Review[];
+  let placeName: string;
+  let googleRating: number | undefined;
+  let googleReviewCount: number | undefined;
 
-  stopProgressPoll();
+  // Scrolling is the expensive half. Reuse a cached review set when one exists
+  // so re-analyze and provider switches only pay for the AI call.
+  const cachedReviews = forceFresh
+    ? null
+    : await getCachedReviews(currentTabUrl, maxReviews, currentPlaceName);
 
-  if (analysisCancelled) return;
-  if (reviewsResponse.type === 'NO_REVIEWS')  { setScreen('no-reviews'); return; }
-  if (reviewsResponse.type === 'ERROR')        { showError(reviewsResponse.payload); return; }
+  if (cachedReviews) {
+    console.log(`[GReviewSumm] Reusing ${cachedReviews.reviews.length} cached reviews — skipping scrape`);
+    ({ reviews, placeName, googleRating, googleReviewCount } = cachedReviews);
+    setLoadingStep(2, `${reviews.length.toLocaleString()} reviews (cached)`);
+  } else {
+    startProgressPoll(currentTabId);
 
-  if (reviewsResponse.type === 'REVIEWS_DATA') {
-    const { reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload;
-    console.log(`[GReviewSumm] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
-    setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
-
-    let summaryResponse: MessageType;
+    let reviewsResponse: MessageType;
     try {
-      summaryResponse = await sendRuntimeMessage({
-        type: 'SUMMARIZE',
-        payload: { reviews, placeName, settings, googleRating, googleReviewCount },
+      reviewsResponse = await sendToTab(currentTabId, {
+        type: 'GET_REVIEWS',
+        maxReviews,
+        scrollConfig: {
+          tabOpenWaitMs:     SCROLL_CONFIG.TAB_OPEN_WAIT_MS,
+          pollIntervalMs:    SCROLL_CONFIG.POLL_INTERVAL_MS,
+          scrollWaitMs:      SCROLL_CONFIG.SCROLL_WAIT_MS,
+          moreReviewsWaitMs: SCROLL_CONFIG.MORE_REVIEWS_WAIT_MS,
+          maxStableRounds:   SCROLL_CONFIG.MAX_STABLE_ROUNDS,
+        },
       } satisfies MessageType);
     } catch (err) {
-      console.error('[GReviewSumm] Background error:', err);
-      showError(`Failed to summarize: ${err}`);
+      stopProgressPoll();
+      console.error('[GReviewSumm] Message error:', err);
+      showError(`Extension error: ${err}. Make sure you're on Google Maps (google.com/maps) and the page has fully loaded.`);
       return;
     }
 
+    stopProgressPoll();
+
     if (analysisCancelled) return;
-    if (summaryResponse.type === 'SUMMARY_RESULT') {
-      const timestamp = Date.now();
-      await setCachedResult(currentTabUrl, summaryResponse.payload);
-      renderResult(summaryResponse.payload, timestamp);
-    } else if (summaryResponse.type === 'ERROR') {
-      showError((summaryResponse as { type: 'ERROR'; payload: string }).payload);
+    if (reviewsResponse.type === 'NO_REVIEWS') { setScreen('no-reviews'); return; }
+    if (reviewsResponse.type === 'ERROR')      { showError(reviewsResponse.payload); return; }
+    if (reviewsResponse.type !== 'REVIEWS_DATA') {
+      showError('Unexpected response while gathering reviews.');
+      return;
     }
+
+    ({ reviews, placeName, googleRating, googleReviewCount } = reviewsResponse.payload);
+    console.log(`[GReviewSumm] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
+    setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
+
+    await setCachedReviews(currentTabUrl, {
+      reviews, placeName, googleRating, googleReviewCount, maxReviews, timestamp: Date.now(),
+    });
+  }
+
+  currentPlaceName = placeName;
+
+  // Only rating and text ever reach the model. author is used solely for
+  // scrape-time dedup and date only by the time-window scopes, so both are
+  // dropped before crossing the message boundary.
+  const needsDate = settings.reviewMode !== 'all' && settings.reviewMode !== 'recent';
+  const payloadReviews: Review[] = reviews.map((r) => ({
+    author: '',
+    rating: r.rating,
+    text: r.text,
+    ...(needsDate && r.date !== undefined ? { date: r.date } : {}),
+  }));
+
+  let summaryResponse: MessageType;
+  try {
+    summaryResponse = await sendRuntimeMessage({
+      type: 'SUMMARIZE',
+      payload: { reviews: payloadReviews, placeName, settings, googleRating, googleReviewCount },
+    } satisfies MessageType);
+  } catch (err) {
+    console.error('[GReviewSumm] Background error:', err);
+    showError(`Failed to summarize: ${err}`);
+    return;
+  }
+
+  if (analysisCancelled) return;
+  if (summaryResponse.type === 'SUMMARY_RESULT') {
+    const timestamp = Date.now();
+    await setCachedResult(currentTabUrl, settings, summaryResponse.payload);
+    renderResult(summaryResponse.payload, timestamp);
+  } else if (summaryResponse.type === 'ERROR') {
+    showError(summaryResponse.payload);
   }
 }
 
@@ -856,13 +992,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Result screen
   $('[data-action="re-analyze"]')?.addEventListener('click', () => runAnalyze());
+  $('[data-action="fresh-scrape"]')?.addEventListener('click', () => runAnalyze(true));
   $('[data-action="open-settings"]')?.addEventListener('click', () => openSettings());
 
   // Settings
   $('[data-action="save-settings"]')?.addEventListener('click', async () => {
     const newSettings = readSettingsFromUI();
+    await ensureCustomEndpointPermission(newSettings);
     await saveSettings(newSettings);
     await runAnalyze();
+  });
+  // Persist without kicking off a full scrape — changing a model or pasting a
+  // key should not force a 30-60s analysis.
+  $('[data-action="save-settings-only"]')?.addEventListener('click', async () => {
+    const newSettings = readSettingsFromUI();
+    await ensureCustomEndpointPermission(newSettings);
+    await saveSettings(newSettings);
+    await showInfoScreen();
   });
   $('[data-action="cancel-settings"]')?.addEventListener('click', () => showInfoScreen());
 

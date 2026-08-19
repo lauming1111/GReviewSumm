@@ -9,6 +9,32 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Scraped reviews are cached** for 24 h alongside the summary, so Re-analyze and provider switches skip the scroll phase entirely — a new **⟳ Fresh** button forces a re-scrape
+- **Save** button in settings, separate from **Save & Analyze** — changing a model or pasting a key no longer forces a full analysis
+- Result header now reports the sample size (e.g. "113 of 1,043 reviews analyzed") instead of implying every review was read
+- Request timeout on all AI calls, so a hung Ollama server surfaces an error instead of spinning forever
+- `optional_host_permissions` plus a save-time permission request, so custom OpenAI-compatible endpoints on non-localhost hosts work
+
+### Fixed
+- **Wrong business summary on Google Search pages** — the cache key kept only origin + pathname, so every `google.com/search` knowledge panel collapsed onto one key and served the previously analyzed business's summary
+- Cache key now includes provider, model, and review scope — switching provider previously returned the old result unchanged
+- `config.ts` values never reached the scroll loop; the content script dropped the `scrollConfig` it was sent and always used its own hardcoded copy
+- Reviews with an unparseable date are kept rather than silently dropped, which could empty every time-window result set
+- Rating-only reviews no longer feed card UI chrome ("Like", "Share", "Local Guide") to the model as review prose
+- `reviewCount` is now honoured in **All** scope, and its input is no longer hidden there — previously there was no way to cap a very large place
+- Expired cache entries are evicted on read and both caches are capped at 50 entries
+- Anthropic output cap raised to 2048 tokens; a truncated response produced invalid JSON that then burned every retry
+
+### Changed
+- **Prompt is now bounded.** Reviews sent to the model are capped and sampled — all 1–2★ reviews are kept, the rest stride-sampled across the full time range, with a hard character budget. A 1000-review place previously produced a ~68k-token prompt against a 4096-token context window, so the model silently read a fraction of it at full latency. Ollama `num_ctx` default raised to 16384
+- **Scraper no longer re-parses collected reviews.** Cards are tracked in a `WeakSet` and parsed exactly once; polling now collects as it goes rather than parsing the whole list to answer a boolean and discarding the result
+- `MAX_STABLE_ROUNDS` reduced from 5 to 2, plus an early exit once Google's reported review count is reached — removing up to ~20 s of waiting after the last review was already collected
+- Cancel is now checked mid-wait instead of only between rounds (was up to ~4 s to register)
+- Scroll targets the resolved review panel directly, replacing a per-round sentinel insert, ancestor scroll-walk, and an `offsetParent` scan over every button and link on the page
+- Retry now wraps only the model call and its parse — prompt construction and the Ollama health check no longer repeat on every attempt — and backs off between attempts
+- `author` is dropped and `date` omitted for non-time-window scopes before crossing the popup → background message boundary
+
 ---
 
 ## [1.2.0] — 2026-05-25

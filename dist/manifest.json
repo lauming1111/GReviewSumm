@@ -19,6 +19,10 @@
     "https://api.groq.com/*",
     "https://api.x.ai/*"
   ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "GReviewSumm",

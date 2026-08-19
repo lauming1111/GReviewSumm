@@ -92,6 +92,12 @@ Click ⚙ in the top-right to configure:
 | **Review scope** | All time · Recent (by count) · Last 1/3/6/12 months |
 | **Maximum reviews** | How many reviews to collect (10–2000, default 1000) |
 
+### How reviews are analyzed
+
+The extension collects reviews by scrolling the page, then sends a **bounded sample** to the model rather than every review. All 1–2★ reviews are kept (complaints carry the most signal), and the rest are sampled evenly across the full time range up to a character budget that fits the model's context window. The result header shows exactly how many were analyzed, e.g. *"113 of 1,043 reviews analyzed"*.
+
+Scraped reviews are cached for 24 hours, so **↺ Re-analyze** and switching providers skip the slow scrolling phase. Use **⟳ Fresh** to force a re-scrape.
+
 ### API Key Security
 
 Keys entered in settings are encrypted with AES-GCM-256 before being written to Chrome's local storage. They are never loaded back into the input field — a `✓ Saved` badge confirms a stored key. Use the `✕` button beside a key field to revoke it.

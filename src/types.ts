@@ -16,6 +16,10 @@ export interface SummaryResult {
   topThemes: string[];
   /** Staff/employee first names mentioned by name in multiple reviews. */
   notableStaff: string[];
+  /** How many reviews were actually serialized into the prompt. */
+  analyzedCount?: number;
+  /** How many reviews were collected and matched the scope before sampling. */
+  collectedCount?: number;
 }
 
 export interface OllamaParams {

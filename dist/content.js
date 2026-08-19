@@ -1,4 +1,8 @@
 const REVIEW_CARD_SELECTOR = '[data-review-id]';
+/** Minimum characters for a review body to be considered meaningful content. */
+const MIN_REVIEW_TEXT_LEN = 15;
+/** Fallback ceiling when the popup does not supply one (mirrors SCROLL_CONFIG.MAX_REVIEWS_ALL). */
+const DEFAULT_MAX_REVIEWS = 10000;
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,60 +25,68 @@ async function ensureReviewsTabOpen(tabOpenWaitMs) {
         await sleep(tabOpenWaitMs);
     }
 }
-// Poll every pollMs until a new unique review is visible, or timeoutMs elapses.
-// Exits early as soon as new content appears — much faster than a fixed sleep.
-async function waitForNewContent(seenKeys, pollMs, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        await sleep(pollMs);
-        for (const card of getReviewCards()) {
-            const review = extractReviewFromCard(card);
-            if (!review)
-                continue;
-            const key = `${review.author}|${review.text.slice(0, 60)}`;
-            if (!seenKeys.has(key))
-                return; // new content spotted — exit immediately
+// ─── Scroll container ─────────────────────────────────────────────────────────
+// Find the scrollable ancestor that holds the review list. Resolved once and
+// cached — scrolling it directly avoids the sentinel-insert + ancestor-walk
+// reflow storm the previous implementation performed on every round.
+function findScrollContainer(from) {
+    let node = from.parentElement;
+    while (node && node !== document.body) {
+        const overflowY = getComputedStyle(node).overflowY;
+        if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 4) {
+            return node;
         }
+        node = node.parentElement;
     }
-}
-// Click a "More reviews" / "See more" button if one is visible, return true if clicked
-function clickMoreReviewsButton() {
-    const keywords = /more review|see more review|load more|show more review/i;
-    const candidates = Array.from(document.querySelectorAll('button, [role="button"], a'));
-    const btn = candidates.find((el) => {
-        if (!el.offsetParent)
-            return false;
-        return keywords.test(el.textContent?.trim() ?? '') ||
-            keywords.test(el.getAttribute('aria-label') ?? '');
-    });
-    if (btn) {
-        console.log(`[GReviewSumm] Clicking "More reviews" button: "${btn.textContent?.trim()}"`);
-        btn.click();
-        return true;
-    }
-    return false;
+    return null;
 }
 // Scroll past the last card to trigger Google Maps lazy-loading.
-function scrollReviewsPanel(lastCard) {
-    // 1. Insert a 1px sentinel immediately after the last card and scroll to it.
-    //    scrollIntoView on an already-visible card does nothing; the sentinel is
-    //    always just below it, so the panel must scroll down to show it.
+function scrollReviewsPanel(lastCard, panel) {
+    // Fast path — one property write, no DOM mutation, no forced layout loop.
+    if (panel) {
+        panel.scrollTop = panel.scrollHeight;
+        return;
+    }
+    // Fallback 1: insert a 1px sentinel after the last card and scroll to it.
+    // scrollIntoView on an already-visible card does nothing; the sentinel is
+    // always just below it, so the panel must scroll down to show it.
     const sentinel = document.createElement('div');
     sentinel.style.cssText = 'height:1px;width:1px;pointer-events:none;';
     lastCard.after(sentinel);
     sentinel.scrollIntoView({ behavior: 'instant', block: 'end' });
     sentinel.remove();
-    // 2. Also walk ancestors setting scrollTop = scrollHeight (catches fixed panels).
+    // Fallback 2: walk ancestors setting scrollTop = scrollHeight.
     let node = lastCard.parentElement;
     while (node && node !== document.documentElement) {
         const prev = node.scrollTop;
         node.scrollTop = node.scrollHeight;
         if (node.scrollTop !== prev)
-            break; // stop at first element that actually scrolled
+            return; // something scrolled — done
         node = node.parentElement;
     }
-    // 3. Window scroll for mobile/responsive layouts where the page itself scrolls.
+    // Fallback 3: window scroll for mobile/responsive layouts where the page scrolls.
     window.scrollTo(0, document.documentElement.scrollHeight);
+}
+// Click a "More reviews" / "See more" button if one is visible, return true if clicked.
+// Scoped to the reviews panel when known, and the cheap regex test runs before any
+// layout-forcing visibility check.
+function clickMoreReviewsButton(panel) {
+    const keywords = /more review|see more review|load more|show more review/i;
+    const root = panel ?? document;
+    const candidates = root.querySelectorAll('button, [role="button"], a');
+    for (let i = 0; i < candidates.length; i++) {
+        const el = candidates[i];
+        if (!keywords.test(el.textContent?.trim() ?? '') &&
+            !keywords.test(el.getAttribute('aria-label') ?? '')) {
+            continue;
+        }
+        if (el.hidden || el.getClientRects().length === 0)
+            continue;
+        console.log(`[GReviewSumm] Clicking "More reviews" button: "${el.textContent?.trim()}"`);
+        el.click();
+        return true;
+    }
+    return false;
 }
 // ─── Scraping ─────────────────────────────────────────────────────────────────
 // Returns the number of DOM-tree edges between two elements (via their LCA).
@@ -144,9 +156,11 @@ function scrapeGoogleAggregateRating() {
     const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
     const afterH1 = allValid.filter(({ el }) => !!(h1.compareDocumentPosition(el) & FOLLOWING));
     const pool = afterH1.length > 0 ? afterH1 : allValid;
-    // Pick the candidate with the smallest DOM-tree distance to h1.
-    pool.sort((a, b) => domDistance(h1, a.el) - domDistance(h1, b.el));
-    return pool[0].result;
+    // Precompute each candidate's distance once — computing it inside the comparator
+    // re-walked the ancestor chain on every O(n log n) comparison.
+    const withDistance = pool.map((c) => ({ ...c, dist: domDistance(h1, c.el) }));
+    withDistance.sort((a, b) => a.dist - b.dist);
+    return withDistance[0].result;
 }
 function extractStarRating(el) {
     const ariaLabel = el.getAttribute('aria-label') ?? '';
@@ -156,10 +170,15 @@ function extractStarRating(el) {
     return 0;
 }
 function extractReviewFromCard(card) {
+    // NOTE: no `?? card` fallback. Falling back to the card itself yielded the
+    // whole card's textContent — author name, date, "Like", "Share", local-guide
+    // badge — which was then sent to the model as if it were review prose.
     const textEl = card.querySelector('.wiI7pd') ??
+        card.querySelector('.MyEned') ??
         card.querySelector('[class*="review-full-text"]') ??
-        card.querySelector('span[jslog]') ??
-        card;
+        card.querySelector('span[jslog]');
+    if (!textEl)
+        return null;
     const ratingEl = card.querySelector('span[role="img"][aria-label*="star"]') ??
         card.querySelector('[aria-label*="star"]') ??
         card.querySelector('[aria-label*="Star"]');
@@ -167,11 +186,11 @@ function extractReviewFromCard(card) {
         card.querySelector('.TSUbDb') ??
         card.querySelector('button[class*="fontBodyMedium"]');
     const dateEl = card.querySelector('.rsqaWe, .dehysf, [class*="date"]');
-    let text = textEl?.textContent?.trim() ?? '';
+    let text = textEl.textContent?.trim() ?? '';
     if (text.length > 2000) {
         text = text.split('\n').filter((l) => l.trim().length > 10).slice(0, 3).join(' ').substring(0, 500);
     }
-    if (!text || text.length < 5)
+    if (text.length < MIN_REVIEW_TEXT_LEN)
         return null;
     return {
         author: authorEl?.textContent?.trim() ?? 'Anonymous',
@@ -257,48 +276,88 @@ const DEFAULT_SCROLL_CONFIG = {
     pollIntervalMs: 300,
     scrollWaitMs: 2000,
     moreReviewsWaitMs: 2000,
-    maxStableRounds: 5,
+    maxStableRounds: 2,
 };
 async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
     await ensureReviewsTabOpen(cfg.tabOpenWaitMs);
-    if (getReviewCards().length === 0) {
+    const initialCards = getReviewCards();
+    if (initialCards.length === 0) {
         console.log('[GReviewSumm] No review cards found after tab open attempt');
         return { reviews: [], placeName: document.title };
     }
+    // Resolve the scrollable review panel once and reuse it every round.
+    const panel = findScrollContainer(initialCards[0]);
+    console.log(`[GReviewSumm] Scroll container: ${panel ? panel.className || '<unnamed>' : 'not found — using fallback'}`);
+    // Scrape the aggregate rating up front so the loop knows its target count.
+    const aggregate = scrapeGoogleAggregateRating();
+    const targetCount = aggregate.googleReviewCount;
+    // Cards already parsed. A WeakSet keyed on the element means each card is
+    // parsed exactly once, no matter how many times it is re-queried — this is
+    // what removes the quadratic re-parse the previous implementation had.
+    const seenCards = new WeakSet();
     const seenKeys = new Set();
     const allReviews = [];
-    function collectVisible() {
+    let lastCard = null;
+    function collectNew() {
         let added = 0;
-        for (const card of getReviewCards()) {
+        const cards = document.querySelectorAll(REVIEW_CARD_SELECTOR);
+        for (let i = 0; i < cards.length; i++) {
+            const card = cards[i];
+            if (seenCards.has(card))
+                continue;
+            seenCards.add(card);
+            if (card.parentElement?.closest(REVIEW_CARD_SELECTOR))
+                continue; // nested duplicate
             const review = extractReviewFromCard(card);
             if (!review)
                 continue;
             const key = `${review.author}|${review.text.slice(0, 60)}`;
-            if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                allReviews.push(review);
-                added++;
-            }
+            if (seenKeys.has(key))
+                continue;
+            seenKeys.add(key);
+            allReviews.push(review);
+            added++;
         }
+        // Last element in document order — no extra scan needed for the scroll target.
+        lastCard = cards.length > 0 ? cards[cards.length - 1] : lastCard;
         progressCount = allReviews.length;
         return added;
     }
+    // Poll until new reviews appear or the timeout elapses, COLLECTING as it goes.
+    // Checks before sleeping so a fast page does not pay a full poll interval,
+    // and honours shouldStop mid-wait so Cancel is responsive.
+    async function pollForNewReviews(timeoutMs, pollMs) {
+        const deadline = Date.now() + timeoutMs;
+        for (;;) {
+            const added = collectNew();
+            if (added > 0)
+                return added;
+            if (shouldStop)
+                return 0;
+            if (Date.now() >= deadline)
+                return 0;
+            await sleep(pollMs);
+        }
+    }
     // Grab the first visible batch before scrolling
-    collectVisible();
+    collectNew();
     let stableRounds = 0;
     while (stableRounds < cfg.maxStableRounds && allReviews.length < maxReviews && !shouldStop) {
-        const lastCard = getReviewCards().slice(-1)[0];
+        // Stop early once we have as many reviews as Google says exist.
+        if (targetCount !== null && allReviews.length >= targetCount) {
+            console.log(`[GReviewSumm] Reached Google's reported count (${targetCount}) — stopping early`);
+            break;
+        }
         if (lastCard)
-            scrollReviewsPanel(lastCard);
-        // Smart wait: exit as soon as new reviews appear (poll) or timeout
-        await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.scrollWaitMs);
-        const added = collectVisible();
+            scrollReviewsPanel(lastCard, panel);
+        const added = await pollForNewReviews(cfg.scrollWaitMs, cfg.pollIntervalMs);
         console.log(`[GReviewSumm] Scroll: ${allReviews.length} unique reviews (${added} new this round)`);
         if (added === 0) {
-            const clicked = clickMoreReviewsButton();
+            if (shouldStop)
+                break;
+            const clicked = clickMoreReviewsButton(panel);
             if (clicked) {
-                await waitForNewContent(seenKeys, cfg.pollIntervalMs, cfg.moreReviewsWaitMs);
-                const addedAfterClick = collectVisible();
+                const addedAfterClick = await pollForNewReviews(cfg.moreReviewsWaitMs, cfg.pollIntervalMs);
                 if (addedAfterClick > 0) {
                     stableRounds = 0;
                     continue;
@@ -311,7 +370,8 @@ async function scrollAndScrapeReviews(maxReviews, cfg = DEFAULT_SCROLL_CONFIG) {
         }
     }
     console.log(`[GReviewSumm] Done: ${allReviews.length} unique reviews`);
-    const { googleRating, googleReviewCount } = scrapeGoogleAggregateRating();
+    // Reuse the pre-loop aggregate; only re-scrape if it came back empty.
+    const { googleRating, googleReviewCount } = aggregate.googleRating !== null ? aggregate : scrapeGoogleAggregateRating();
     const placeNameEl = document.querySelector('h1.DUwDvf') ??
         document.querySelector('h1[class*="fontHeadlineLarge"]') ??
         document.querySelector('h1');
@@ -330,7 +390,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return true;
     }
     if (message.type === 'GET_PROGRESS') {
-        sendResponse({ type: 'PROGRESS', payload: { count: progressCount || getReviewCards().length } });
+        sendResponse({ type: 'PROGRESS', payload: { count: progressCount } });
         return true;
     }
     if (message.type === 'GET_BASIC_INFO') {
@@ -349,7 +409,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             try {
                 progressCount = 0;
                 shouldStop = false;
-                const result = await scrollAndScrapeReviews(message.maxReviews ?? 1000);
+                const result = await scrollAndScrapeReviews(message.maxReviews ?? DEFAULT_MAX_REVIEWS, message.scrollConfig ?? DEFAULT_SCROLL_CONFIG);
                 if (result.reviews.length === 0) {
                     sendResponse({ type: 'NO_REVIEWS' });
                 }
