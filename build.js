@@ -13,15 +13,17 @@ filesToCopy.forEach(file => {
   }
 });
 
-// Copy icons if they exist
-const iconsDir = path.join(__dirname, 'icons');
-const distIconsDir = path.join(__dirname, 'dist', 'icons');
-if (fs.existsSync(iconsDir)) {
-  if (!fs.existsSync(distIconsDir)) fs.mkdirSync(distIconsDir, { recursive: true });
-  fs.readdirSync(iconsDir).forEach(file => {
-    fs.copyFileSync(path.join(iconsDir, file), path.join(distIconsDir, file));
+// Copy asset directories (icons, self-hosted fonts) if they exist
+['icons', 'fonts'].forEach(dirName => {
+  const srcDir = path.join(__dirname, dirName);
+  const destDir = path.join(__dirname, 'dist', dirName);
+  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+  fs.readdirSync(srcDir).forEach(file => {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
   });
-}
+  console.log(`Copied ${dirName}/ to dist/`);
+});
 
 // Strip export statements from compiled files (needed for Chrome extension scripts)
 const filesToClean = ['content.js', 'background.js', 'popup.js'];

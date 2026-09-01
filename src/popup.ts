@@ -1,5 +1,5 @@
-import type { MessageType, Review, ReviewSettings, SummaryResult } from './types.js';
-import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS, CACHE_CONFIG } from './config.js';
+import type { MessageType, Review, ReviewSettings, ReviewSort, SummaryResult } from './types.js';
+import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS, CACHE_CONFIG, ANALYSIS_DEPTHS } from './config.js';
 import { encryptApiKey, decryptApiKey } from './crypto.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -16,13 +16,18 @@ function setScreen(name: 'info' | 'history' | 'settings' | 'loading' | 'result' 
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+// Every model default comes from AI_DEFAULTS — previously ollamaModel and
+// openaiModel were string literals duplicating config values.
 const DEFAULT_SETTINGS: ReviewSettings = {
   reviewMode: 'all',
   reviewCount: 1000,
   aiProvider: 'ollama',
-  ollamaModel: 'llama3.2:latest',
+  analysisDepth: AI_DEFAULTS.ANALYSIS_DEPTH,
+  outputLanguage: AI_DEFAULTS.OUTPUT_LANGUAGE,
+  ollamaEndpoint: AI_DEFAULTS.OLLAMA_ENDPOINT,
+  ollamaModel: AI_DEFAULTS.OLLAMA_MODEL,
   ollamaParams: {},
-  openaiModel: 'gpt-4o-mini',
+  openaiModel: AI_DEFAULTS.OPENAI_MODEL,
   anthropicModel: AI_DEFAULTS.ANTHROPIC_MODEL,
   geminiModel: AI_DEFAULTS.GEMINI_MODEL,
   groqModel: AI_DEFAULTS.GROQ_MODEL,
@@ -131,12 +136,17 @@ function readKeyFromUI(inputId: string, provider: string, existingKey?: string):
 
 // ─── Provider / count field visibility ───────────────────────────────────────
 
-// The cap is honoured in every mode now, including 'all', so the field is
-// always shown — previously 'all' ignored reviewCount AND hid the input,
-// leaving no way to limit a very large place.
-function updateCountFieldVisibility(_mode: ReviewSettings['reviewMode']): void {
-  const wrapper = document.getElementById('count-field-wrapper');
-  if (wrapper) wrapper.hidden = false;
+/**
+ * The count field applies in every mode, so it is always visible. Only its
+ * caption changes: in 'recent' it is the primary control (the newest N), in
+ * every other mode it is a safety ceiling on how much is collected.
+ */
+function updateCountFieldCaption(mode: ReviewSettings['reviewMode']): void {
+  const hint = document.getElementById('review-count-hint');
+  if (!hint) return;
+  hint.textContent = mode === 'recent'
+    ? 'How many of the newest reviews to analyze.'
+    : 'Upper limit on how many reviews to collect.';
 }
 
 function updateProviderVisibility(provider: ReviewSettings['aiProvider']): void {
@@ -166,7 +176,17 @@ function applySettingsToUI(settings: ReviewSettings): void {
   });
   const countInput = document.querySelector<HTMLInputElement>('#review-count-input');
   if (countInput) countInput.value = String(settings.reviewCount);
-  updateCountFieldVisibility(settings.reviewMode);
+  updateCountFieldCaption(settings.reviewMode);
+
+  // Analysis depth + output language
+  document.querySelectorAll<HTMLElement>('#analysis-depth-group .scope-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.value === (settings.analysisDepth ?? AI_DEFAULTS.ANALYSIS_DEPTH));
+  });
+  const langEl = document.querySelector<HTMLSelectElement>('#output-language-select');
+  if (langEl) langEl.value = settings.outputLanguage ?? AI_DEFAULTS.OUTPUT_LANGUAGE;
+
+  const ollamaEndpointEl = document.querySelector<HTMLInputElement>('#ollama-endpoint-input');
+  if (ollamaEndpointEl) ollamaEndpointEl.value = settings.ollamaEndpoint ?? AI_DEFAULTS.OLLAMA_ENDPOINT;
 
   // Provider buttons
   document.querySelectorAll<HTMLElement>('#ai-provider-group .scope-btn').forEach((btn) => {
@@ -237,11 +257,23 @@ function readSettingsFromUI(): ReviewSettings {
   const customEndpointEl = document.querySelector<HTMLInputElement>('#custom-endpoint-input');
   const customModelEl    = document.querySelector<HTMLInputElement>('#custom-model-input');
 
+  const activeDepth   = document.querySelector<HTMLElement>('#analysis-depth-group .scope-btn.active');
+  const langEl        = document.querySelector<HTMLSelectElement>('#output-language-select');
+  const ollamaEndEl   = document.querySelector<HTMLInputElement>('#ollama-endpoint-input');
+
   return {
     reviewMode:  (activeScope?.dataset.value    as ReviewSettings['reviewMode'])   ?? DEFAULT_SETTINGS.reviewMode,
-    reviewCount: Math.max(10, Number(countInput?.value ?? DEFAULT_SETTINGS.reviewCount)),
+    // Clamped at BOTH ends — the markup's max was previously unenforced on read.
+    reviewCount: Math.min(
+      SCROLL_CONFIG.MAX_REVIEWS_ALL,
+      Math.max(10, Number(countInput?.value) || DEFAULT_SETTINGS.reviewCount)
+    ),
     aiProvider:  (activeProvider?.dataset.value as ReviewSettings['aiProvider'])   ?? 'ollama',
 
+    analysisDepth:  (activeDepth?.dataset.value as ReviewSettings['analysisDepth']) ?? AI_DEFAULTS.ANALYSIS_DEPTH,
+    outputLanguage: langEl?.value || AI_DEFAULTS.OUTPUT_LANGUAGE,
+
+    ollamaEndpoint: ollamaEndEl?.value.trim() || AI_DEFAULTS.OLLAMA_ENDPOINT,
     ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
     ollamaParams: {
       temperature:   ollamaTempEl   ? parseFloat(ollamaTempEl.value)     : AI_DEFAULTS.OLLAMA_TEMPERATURE,
@@ -274,22 +306,97 @@ function readSettingsFromUI(): ReviewSettings {
 }
 
 /**
- * A custom OpenAI-compatible endpoint can live on any host, which the narrow
- * install-time host_permissions do not cover. Request it at save time instead.
+ * A user-supplied endpoint (custom provider, or a remote Ollama) can live on any
+ * host, which the narrow install-time host_permissions do not cover. Request it
+ * at save time instead.
  *
  * Must be the FIRST await in a click handler — chrome.permissions.request needs
  * the user gesture still to be active. It resolves true without prompting when
  * the permission is already granted, so no contains() pre-check.
  */
-async function ensureCustomEndpointPermission(settings: ReviewSettings): Promise<void> {
-  if (settings.aiProvider !== 'custom' || !settings.customEndpoint) return;
+async function ensureEndpointPermission(rawUrl?: string): Promise<void> {
+  if (!rawUrl) return;
   try {
-    const { origin, hostname } = new URL(settings.customEndpoint);
+    const { origin, hostname } = new URL(rawUrl);
     if (hostname === 'localhost' || hostname === '127.0.0.1') return;
     await chrome.permissions.request({ origins: [`${origin}/*`] });
   } catch {
-    // Malformed URL, or the user declined — the summarize call surfaces a clear error.
+    // Malformed URL, or the user declined — the call itself surfaces a clear error.
   }
+}
+
+/** Request host permission for whichever endpoints these settings will contact. */
+async function ensureSettingsPermissions(settings: ReviewSettings): Promise<void> {
+  if (settings.aiProvider === 'custom') await ensureEndpointPermission(settings.customEndpoint);
+  if (settings.aiProvider === 'ollama') await ensureEndpointPermission(settings.ollamaEndpoint);
+}
+
+// ─── Connection test / model picker ──────────────────────────────────────────
+
+function setTestStatus(provider: string, text: string, state: 'idle' | 'busy' | 'ok' | 'fail'): void {
+  const el = document.getElementById(`${provider}-test-status`);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `test-status${state === 'idle' ? '' : ` test-${state}`}`;
+}
+
+/** Fill the Ollama model datalist from the models the server actually has. */
+function renderOllamaModels(models: string[]): void {
+  const list = document.getElementById('ollama-model-list');
+  if (!list) return;
+  list.innerHTML = models.map((m) => `<option value="${m}"></option>`).join('');
+}
+
+/**
+ * Validate the current provider's credentials/endpoint without running a scrape.
+ * The same round-trip returns the provider's model list, which populates the
+ * Ollama picker.
+ */
+async function runConnectionTest(provider: string): Promise<void> {
+  const settings = readSettingsFromUI();
+  setTestStatus(provider, 'Testing…', 'busy');
+
+  let response: MessageType;
+  try {
+    response = await sendRuntimeMessage({
+      type: 'TEST_CONNECTION',
+      payload: { settings },
+    } satisfies MessageType);
+  } catch (err) {
+    setTestStatus(provider, String(err), 'fail');
+    return;
+  }
+
+  if (response.type !== 'CONNECTION_RESULT') {
+    setTestStatus(provider, 'Unexpected response', 'fail');
+    return;
+  }
+
+  const { ok, message, models } = response.payload;
+  setTestStatus(provider, message, ok ? 'ok' : 'fail');
+  if (ok && provider === 'ollama' && models?.length) renderOllamaModels(models);
+}
+
+/**
+ * Restore every default EXCEPT the stored API keys. Keys are encrypted at rest
+ * and never re-displayed, so wiping them would be unrecoverable for the user —
+ * the per-key ✕ button remains the way to remove one deliberately.
+ */
+async function resetSettingsToDefaults(): Promise<void> {
+  const current = await getSettings();
+  const preserved: ReviewSettings = { ...DEFAULT_SETTINGS };
+  for (const field of API_KEY_FIELDS) {
+    const val = current[field];
+    if (typeof val === 'string' && val.length > 0) {
+      (preserved as unknown as Record<string, unknown>)[field] = val;
+    }
+  }
+  // Endpoints are not secrets, but they are laborious to retype — keep them.
+  preserved.customEndpoint = current.customEndpoint;
+
+  await saveSettings(preserved);
+  _clearKeys.clear();
+  applySettingsToUI(preserved);
 }
 
 // ─── Open settings ────────────────────────────────────────────────────────────
@@ -355,12 +462,28 @@ function activeModel(s: ReviewSettings): string {
 }
 
 /**
- * Summary cache key. Includes provider, model, and scope — without them a
- * summary produced by Ollama was still returned after switching to Anthropic
- * or changing the review scope.
+ * Summary cache key.
+ *
+ * Must include EVERY setting that changes the produced summary, otherwise
+ * showInfoScreen renders a stale result after the user changes that setting.
+ * That covers provider, model, scope — and also output language and analysis
+ * depth, both of which feed the prompt (languageRule / ANALYSIS_DEPTHS), and
+ * the Ollama endpoint, since the same model name on a different server is a
+ * different model.
  */
 function summaryKey(url: string, s: ReviewSettings, placeName?: string): string {
-  return `${placeKey(url, placeName)}::${s.aiProvider ?? 'ollama'}::${activeModel(s)}::${s.reviewMode}`;
+  const endpoint = s.aiProvider === 'ollama' ? (s.ollamaEndpoint ?? AI_DEFAULTS.OLLAMA_ENDPOINT)
+                 : s.aiProvider === 'custom' ? (s.customEndpoint ?? '')
+                 : '';
+  return [
+    placeKey(url, placeName),
+    s.aiProvider ?? 'ollama',
+    activeModel(s),
+    endpoint,
+    s.reviewMode,
+    s.analysisDepth  ?? AI_DEFAULTS.ANALYSIS_DEPTH,
+    s.outputLanguage ?? AI_DEFAULTS.OUTPUT_LANGUAGE,
+  ].join('::');
 }
 
 function readStore<T>(storeKey: string): Promise<Record<string, T>> {
@@ -403,18 +526,32 @@ async function setCachedResult(url: string, settings: ReviewSettings, result: Su
   await writeStore(SUMMARY_CACHE_KEY, prune(cache));
 }
 
-async function getCachedReviews(url: string, maxReviews: number, placeName?: string): Promise<ReviewCacheEntry | null> {
+/**
+ * Review-cache key. Includes the sort order: a set collected in Maps' relevance
+ * order is NOT interchangeable with one collected newest-first, and reusing the
+ * wrong one would make 'recent' slice the most-relevant N instead of the newest.
+ */
+function reviewKey(url: string, sortBy: ReviewSort, placeName?: string): string {
+  return `${placeKey(url, placeName)}::${sortBy}`;
+}
+
+async function getCachedReviews(
+  url: string,
+  maxReviews: number,
+  sortBy: ReviewSort,
+  placeName?: string
+): Promise<ReviewCacheEntry | null> {
   const cache = await readStore<ReviewCacheEntry>(REVIEW_CACHE_KEY);
-  const entry = prune(cache)[placeKey(url, placeName)];
+  const entry = prune(cache)[reviewKey(url, sortBy, placeName)];
   if (!entry) return null;
   // A larger request than the cached set was scraped under must re-scrape.
   if (entry.maxReviews < maxReviews && entry.reviews.length >= entry.maxReviews) return null;
   return entry;
 }
 
-async function setCachedReviews(url: string, entry: ReviewCacheEntry): Promise<void> {
+async function setCachedReviews(url: string, sortBy: ReviewSort, entry: ReviewCacheEntry): Promise<void> {
   const cache = await readStore<ReviewCacheEntry>(REVIEW_CACHE_KEY);
-  cache[placeKey(url, entry.placeName)] = entry;
+  cache[reviewKey(url, sortBy, entry.placeName)] = entry;
   await writeStore(REVIEW_CACHE_KEY, prune(cache));
 }
 
@@ -614,6 +751,14 @@ function renderResult(data: SummaryResult, timestamp?: number): void {
 
   if (analyzedAt) {
     analyzedAt.textContent = timestamp ? `Analyzed ${timeAgo(timestamp)}` : '';
+  }
+
+  // parseReviewDate only understands English relative dates, so on a non-English
+  // Maps locale a time-window scope quietly behaves like "all". Say so.
+  const warnEl = document.getElementById('result-warning');
+  if (warnEl) {
+    warnEl.textContent = data.dateParseWarning ?? '';
+    warnEl.hidden = !data.dateParseWarning;
   }
 
   stopAllStepTimers();
@@ -822,6 +967,10 @@ async function runAnalyze(forceFresh = false): Promise<void> {
   // reviewCount is now the scrape ceiling in every mode, capped by MAX_REVIEWS_ALL.
   const maxReviews = Math.min(settings.reviewCount, SCROLL_CONFIG.MAX_REVIEWS_ALL);
 
+  // 'all' keeps Maps' relevance order; every other scope is time-based and
+  // needs the list sorted newest-first to mean what it says.
+  const sortBy: ReviewSort = settings.reviewMode === 'all' ? 'relevance' : 'newest';
+
   let reviews: Review[];
   let placeName: string;
   let googleRating: number | undefined;
@@ -831,7 +980,7 @@ async function runAnalyze(forceFresh = false): Promise<void> {
   // so re-analyze and provider switches only pay for the AI call.
   const cachedReviews = forceFresh
     ? null
-    : await getCachedReviews(currentTabUrl, maxReviews, currentPlaceName);
+    : await getCachedReviews(currentTabUrl, maxReviews, sortBy, currentPlaceName);
 
   if (cachedReviews) {
     console.log(`[GReviewSumm] Reusing ${cachedReviews.reviews.length} cached reviews — skipping scrape`);
@@ -845,6 +994,7 @@ async function runAnalyze(forceFresh = false): Promise<void> {
       reviewsResponse = await sendToTab(currentTabId, {
         type: 'GET_REVIEWS',
         maxReviews,
+        sortBy,
         scrollConfig: {
           tabOpenWaitMs:     SCROLL_CONFIG.TAB_OPEN_WAIT_MS,
           pollIntervalMs:    SCROLL_CONFIG.POLL_INTERVAL_MS,
@@ -874,7 +1024,7 @@ async function runAnalyze(forceFresh = false): Promise<void> {
     console.log(`[GReviewSumm] Got ${reviews.length} reviews, Google rating: ${googleRating ?? 'n/a'}`);
     setLoadingStep(2, `${reviews.length.toLocaleString()} reviews collected`);
 
-    await setCachedReviews(currentTabUrl, {
+    await setCachedReviews(currentTabUrl, sortBy, {
       reviews, placeName, googleRating, googleReviewCount, maxReviews, timestamp: Date.now(),
     });
   }
@@ -931,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#review-mode-group .scope-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      updateCountFieldVisibility(btn.dataset.value as ReviewSettings['reviewMode']);
+      updateCountFieldCaption(btn.dataset.value as ReviewSettings['reviewMode']);
     });
   });
 
@@ -942,6 +1092,61 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.classList.add('active');
       updateProviderVisibility(btn.dataset.value as ReviewSettings['aiProvider']);
     });
+  });
+
+  // Analysis depth buttons — labels/hints sourced from ANALYSIS_DEPTHS so the
+  // config stays the single source of truth for the presets.
+  document.querySelectorAll<HTMLElement>('#analysis-depth-group .scope-btn').forEach((btn) => {
+    const preset = ANALYSIS_DEPTHS[btn.dataset.value as keyof typeof ANALYSIS_DEPTHS];
+    if (preset) {
+      const label = btn.querySelector('.scope-label');
+      const sub   = btn.querySelector('.scope-sub');
+      if (label) label.textContent = preset.label;
+      if (sub)   sub.textContent   = preset.hint;
+    }
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#analysis-depth-group .scope-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // Test connection — one button per provider panel
+  document.querySelectorAll<HTMLElement>('.test-conn-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.provider ?? '';
+      if (provider === 'ollama' || provider === 'custom') {
+        const settings = readSettingsFromUI();
+        await ensureEndpointPermission(
+          provider === 'ollama' ? settings.ollamaEndpoint : settings.customEndpoint
+        );
+      }
+      await runConnectionTest(provider);
+    });
+  });
+
+  // Re-probe Ollama for its model list when the endpoint changes
+  document.querySelector<HTMLInputElement>('#ollama-endpoint-input')
+    ?.addEventListener('change', () => { void runConnectionTest('ollama'); });
+
+  // Reset to defaults — two-click confirm, no window.confirm (blocked in popups)
+  const resetBtn = document.getElementById('reset-settings-btn');
+  let resetArmed = false;
+  resetBtn?.addEventListener('click', async () => {
+    if (!resetArmed) {
+      resetArmed = true;
+      resetBtn.textContent = 'Click again to confirm';
+      resetBtn.classList.add('danger');
+      setTimeout(() => {
+        resetArmed = false;
+        resetBtn.textContent = 'Reset to defaults';
+        resetBtn.classList.remove('danger');
+      }, 4000);
+      return;
+    }
+    resetArmed = false;
+    resetBtn.textContent = 'Reset to defaults';
+    resetBtn.classList.remove('danger');
+    await resetSettingsToDefaults();
   });
 
   // Ollama sliders — live value labels
@@ -998,7 +1203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Settings
   $('[data-action="save-settings"]')?.addEventListener('click', async () => {
     const newSettings = readSettingsFromUI();
-    await ensureCustomEndpointPermission(newSettings);
+    await ensureSettingsPermissions(newSettings);
     await saveSettings(newSettings);
     await runAnalyze();
   });
@@ -1006,7 +1211,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // key should not force a 30-60s analysis.
   $('[data-action="save-settings-only"]')?.addEventListener('click', async () => {
     const newSettings = readSettingsFromUI();
-    await ensureCustomEndpointPermission(newSettings);
+    await ensureSettingsPermissions(newSettings);
     await saveSettings(newSettings);
     await showInfoScreen();
   });

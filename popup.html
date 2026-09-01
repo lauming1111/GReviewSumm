@@ -5,7 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GReviewSumm</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+    /* Self-hosted. The previous @import contacted fonts.googleapis.com on every
+       popup open — a network round-trip on a surface that lives for seconds, in
+       an extension whose premise is that nothing leaves your machine.
+       Both families are variable fonts, so one file covers every weight used. */
+    @font-face {
+      font-family: 'Syne';
+      src: url('fonts/Syne.woff2') format('woff2-variations');
+      font-weight: 400 800;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'DM Sans';
+      src: url('fonts/DMSans.woff2') format('woff2-variations');
+      font-weight: 100 1000;
+      font-display: swap;
+    }
 
     :root {
       --bg: #0f0f13;
@@ -13,8 +28,12 @@
       --surface2: #1e1e2a;
       --border: #2a2a3a;
       --text: #f0f0f8;
-      --text-muted: #8888aa;
+      /* 6.09:1 worst case (on --surface2). Was #8888aa at 4.83:1. */
+      --text-muted: #9a9ac0;
+      /* --accent is for FILLS and BORDERS only: as text it is 3.82:1. */
       --accent: #6c63ff;
+      /* Accent used as TEXT — 6.06:1. */
+      --accent-text: #a78bfa;
       --accent-glow: rgba(108, 99, 255, 0.3);
       --pro: #34d399;
       --con: #f87171;
@@ -25,6 +44,21 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
     [hidden] { display: none !important; }
+
+    /* Keyboard focus was invisible: .scope-btn and .history-delete set
+       outline:none with no replacement. One ring for every control. */
+    :focus-visible {
+      outline: 2px solid var(--accent-text);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+
+    /* Shared scrollbar treatment — previously duplicated per component, and
+       .settings-screen had none at all so it rendered the default light bar. */
+    .scroll-area { overflow-y: auto; }
+    .scroll-area::-webkit-scrollbar { width: 4px; }
+    .scroll-area::-webkit-scrollbar-track { background: transparent; }
+    .scroll-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
     body {
       width: 380px;
@@ -85,10 +119,21 @@
       transition: all 0.15s;
     }
 
-    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent-text); }
 
     /* ── Screens ── */
-    .screen { padding: 20px; }
+    .screen { padding: 20px; animation: screen-in 0.18s ease-out; }
+
+    @keyframes screen-in {
+      from { opacity: 0; transform: translateY(3px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .screen { animation: none; }
+      .spinner { animation-duration: 2.4s; }
+      .step.step-active .step-dot { animation: none; }
+    }
 
     .setup-icon { font-size: 40px; text-align: center; margin-bottom: 12px; }
 
@@ -100,15 +145,84 @@
       margin-bottom: 6px;
     }
 
+    /* Sentence case. Globally uppercasing every label made all 60+ controls
+       shout equally, so nothing read as more important than anything else. */
     label {
       display: block;
       font-size: 12px;
       font-weight: 500;
       color: var(--text-muted);
       margin-bottom: 6px;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
     }
+
+    /* Uppercase is now reserved for card headers. */
+    .section-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.45;
+      margin: -6px 0 12px;
+    }
+
+    /* ── Settings cards ── */
+    .settings-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .settings-card > .scope-grid:last-child,
+    .settings-card > select:last-child { margin-bottom: 0; }
+
+    details.settings-card { padding: 0; }
+    details.settings-card > .advanced-toggle { padding: 12px 14px; margin: 0; }
+    details.settings-card[open] > .advanced-toggle { border-bottom: 1px solid var(--border); }
+    .settings-card-body { padding: 14px; }
+
+    /* ── Test connection ── */
+    .test-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .test-conn-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 7px 12px;
+      font-size: 11.5px;
+      font-family: inherit;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .test-conn-btn:hover { border-color: var(--accent); color: var(--accent-text); }
+
+    .test-status {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.35;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .test-ok   { color: var(--pro); }
+    .test-fail { color: var(--con); }
 
     /* ── Text / number inputs ── */
     input[type="password"],
@@ -122,7 +236,6 @@
       font-family: inherit;
       font-size: 13px;
       padding: 10px 14px;
-      outline: none;
       transition: border-color 0.15s;
       margin-bottom: 12px;
     }
@@ -137,7 +250,6 @@
       height: 4px;
       background: var(--border);
       border-radius: 2px;
-      outline: none;
       margin: 0;
       cursor: pointer;
     }
@@ -186,6 +298,7 @@
       padding-right: 36px; /* room for clear button */
     }
 
+    /* No opacity: at 0.55 this key-revoke button measured 2.39:1. */
     .clear-key-btn {
       position: absolute;
       right: 10px;
@@ -197,12 +310,11 @@
       cursor: pointer;
       font-size: 13px;
       line-height: 1;
-      opacity: 0.55;
-      transition: opacity 0.15s, color 0.15s;
+      transition: color 0.15s;
       padding: 2px;
     }
 
-    .clear-key-btn:hover { opacity: 1; color: var(--con); }
+    .clear-key-btn:hover { color: var(--con); }
 
     /* ── Advanced params panel ── */
     .advanced-details { margin-bottom: 12px; }
@@ -220,7 +332,7 @@
     }
 
     .advanced-toggle::-webkit-details-marker { display: none; }
-    details[open] > summary.advanced-toggle { color: var(--accent); }
+    details[open] > summary.advanced-toggle { color: var(--accent-text); }
 
     .param-group {
       background: var(--surface2);
@@ -244,7 +356,7 @@
     }
 
     .param-val {
-      color: var(--accent);
+      color: var(--accent-text);
       font-weight: 600;
       font-variant-numeric: tabular-nums;
       min-width: 32px;
@@ -298,7 +410,6 @@
       gap: 3px;
       transition: all 0.15s;
       text-align: center;
-      outline: none;
     }
 
     .scope-btn:hover { border-color: var(--accent); color: var(--text); }
@@ -306,7 +417,7 @@
     .scope-btn.active {
       background: rgba(108, 99, 255, 0.12);
       border-color: var(--accent);
-      color: var(--accent);
+      color: var(--accent-text); /* --accent as text is 3.82:1 */
       box-shadow: 0 0 0 1px var(--accent);
     }
 
@@ -317,7 +428,8 @@
       letter-spacing: 0.02em;
     }
 
-    .scope-sub { font-size: 10px; opacity: 0.65; font-weight: 400; }
+    /* Was 10px at opacity .65 — 2.83:1, the worst failure on the busiest label. */
+    .scope-sub { font-size: 11px; font-weight: 400; line-height: 1.3; }
 
     /* ── Buttons ── */
     .btn {
@@ -370,7 +482,6 @@
       font-family: inherit;
       font-size: 13px;
       padding: 10px 14px;
-      outline: none;
       transition: border-color 0.15s;
       margin-bottom: 12px;
       appearance: none;
@@ -456,8 +567,7 @@
 
     .step-time {
       font-size: 11px;
-      color: var(--text-muted);
-      opacity: 0.6;
+      color: var(--text-muted); /* was opacity .6 — 2.76:1 */
       font-variant-numeric: tabular-nums;
       min-width: 24px;
     }
@@ -472,7 +582,9 @@
       min-height: 14px;
     }
 
-    .step.step-pending .step-detail { opacity: 0.4; }
+    /* 0.8 is the lowest opacity that still clears AA (4.88:1) for this
+       informational "Waiting…" text — 0.4 measured 2.10:1. */
+    .step.step-pending .step-detail { opacity: 0.8; }
 
     /* ── Result ── */
     .result-screen {
@@ -526,10 +638,6 @@
       overflow-y: auto;
     }
 
-    .result-body::-webkit-scrollbar { width: 4px; }
-    .result-body::-webkit-scrollbar-track { background: transparent; }
-    .result-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
     .summary-box {
       background: var(--surface2);
       border: 1px solid var(--border);
@@ -538,7 +646,6 @@
       font-size: 13px;
       line-height: 1.65;
       margin-bottom: 16px;
-      font-style: italic;
       border-left: 3px solid var(--accent);
     }
 
@@ -599,6 +706,24 @@
       font-weight: 600;
     }
 
+    .result-warning {
+      background: rgba(251, 191, 36, 0.1);
+      border-left: 2px solid var(--neutral);
+      color: var(--neutral);
+      font-size: 11.5px;
+      line-height: 1.5;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 14px;
+    }
+
+    /* ── Settings actions ── */
+    .settings-actions { display: flex; flex-direction: column; gap: 8px; }
+    .settings-actions .btn { margin-top: 0; }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-row .btn { flex: 1; }
+    .btn.danger { color: var(--con); border-color: var(--con); }
+
     /* ── Error / no-reviews ── */
     .center-screen { text-align: center; padding: 32px 24px; }
     .error-icon    { font-size: 36px; margin-bottom: 12px; }
@@ -631,10 +756,6 @@
       max-height: 380px;
       overflow-y: auto;
     }
-
-    .history-list::-webkit-scrollbar { width: 4px; }
-    .history-list::-webkit-scrollbar-track { background: transparent; }
-    .history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
     .history-item {
       background: var(--surface2);
@@ -676,6 +797,8 @@
 
     .history-stars { color: var(--neutral); font-size: 10px; }
 
+    /* Was opacity .4 — 1.85:1, effectively invisible. outline:none removed so
+       the global :focus-visible ring applies. */
     .history-delete {
       background: none;
       border: none;
@@ -684,12 +807,10 @@
       padding: 2px 5px;
       font-size: 13px;
       flex-shrink: 0;
-      opacity: 0.4;
-      transition: opacity 0.15s, color 0.15s;
-      outline: none;
+      transition: color 0.15s;
     }
 
-    .history-delete:hover { opacity: 1; color: var(--con); }
+    .history-delete:hover { color: var(--con); }
     .history-empty { text-align: center; color: var(--text-muted); font-size: 12.5px; padding: 32px 0; }
 
     /* ── Info / settings screens ── */
@@ -709,7 +830,7 @@
     .info-icon { flex-shrink: 0; font-size: 11px; margin-top: 1px; }
     .info-text  { line-height: 1.4; }
 
-    .settings-screen { overflow-y: auto; max-height: 100%; }
+    .settings-screen { max-height: 100%; }
 
     /* ── Footer ── */
     .footer {
@@ -746,7 +867,7 @@
       <span class="history-title">History</span>
       <button class="icon-btn" id="clear-history-btn">Clear all</button>
     </div>
-    <div class="history-list" id="history-list"></div>
+    <div class="history-list scroll-area" id="history-list"></div>
   </div>
 
   <!-- ── Info screen ── -->
@@ -772,239 +893,336 @@
   </div>
 
   <!-- ── Settings screen ── -->
-  <div class="screen settings-screen" data-screen="settings" hidden>
+  <div class="screen settings-screen scroll-area" data-screen="settings" hidden>
     <div class="setup-icon">⚙️</div>
     <div class="setup-title">Settings</div>
 
-    <!-- AI Provider -->
-    <label>AI Provider</label>
-    <div class="scope-grid" id="ai-provider-group">
-      <button class="scope-btn" data-value="ollama">
-        <span class="scope-label">Ollama</span>
-        <span class="scope-sub">local · free</span>
-      </button>
-      <button class="scope-btn" data-value="openai">
-        <span class="scope-label">OpenAI</span>
-        <span class="scope-sub">ChatGPT</span>
-      </button>
-      <button class="scope-btn" data-value="anthropic">
-        <span class="scope-label">Claude</span>
-        <span class="scope-sub">Anthropic</span>
-      </button>
-      <button class="scope-btn" data-value="gemini">
-        <span class="scope-label">Gemini</span>
-        <span class="scope-sub">Google</span>
-      </button>
-      <button class="scope-btn" data-value="groq">
-        <span class="scope-label">Groq</span>
-        <span class="scope-sub">fast · free tier</span>
-      </button>
-      <button class="scope-btn" data-value="xai">
-        <span class="scope-label">Grok</span>
-        <span class="scope-sub">xAI</span>
-      </button>
-      <!-- Custom spans full row -->
-      <button class="scope-btn" data-value="custom">
-        <span class="scope-label">Custom</span>
-        <span class="scope-sub">OpenAI-compatible endpoint</span>
-      </button>
-    </div>
+    <!-- ═══ Card 1 — AI Provider ═══ -->
+    <section class="settings-card">
+      <h2 class="section-label">AI Provider</h2>
+      <div class="scope-grid" id="ai-provider-group">
+        <button class="scope-btn" data-value="ollama">
+          <span class="scope-label">Ollama</span>
+          <span class="scope-sub">local · free</span>
+        </button>
+        <button class="scope-btn" data-value="openai">
+          <span class="scope-label">OpenAI</span>
+          <span class="scope-sub">ChatGPT</span>
+        </button>
+        <button class="scope-btn" data-value="anthropic">
+          <span class="scope-label">Claude</span>
+          <span class="scope-sub">Anthropic</span>
+        </button>
+        <button class="scope-btn" data-value="gemini">
+          <span class="scope-label">Gemini</span>
+          <span class="scope-sub">Google</span>
+        </button>
+        <button class="scope-btn" data-value="groq">
+          <span class="scope-label">Groq</span>
+          <span class="scope-sub">fast · free tier</span>
+        </button>
+        <button class="scope-btn" data-value="xai">
+          <span class="scope-label">Grok</span>
+          <span class="scope-sub">xAI</span>
+        </button>
+        <!-- Custom spans full row -->
+        <button class="scope-btn" data-value="custom">
+          <span class="scope-label">Custom</span>
+          <span class="scope-sub">OpenAI-compatible endpoint</span>
+        </button>
+      </div>
 
-    <!-- ── Ollama config ── -->
-    <div id="ollama-config">
-      <label for="ollama-model-input">Model name</label>
-      <input type="text" id="ollama-model-input" placeholder="e.g. llama3.2:latest, mistral, phi4" />
+      <!-- ── Ollama ── -->
+      <div id="ollama-config">
+        <label for="ollama-model-input">Model name</label>
+        <input type="text" id="ollama-model-input" list="ollama-model-list"
+               placeholder="e.g. llama3.2:latest, mistral, phi4" />
+        <!-- Populated from the server's own /api/tags listing -->
+        <datalist id="ollama-model-list"></datalist>
 
-      <details class="advanced-details">
-        <summary class="advanced-toggle">▸ Advanced model parameters</summary>
-        <div class="param-group">
-
-          <div class="param-row">
-            <div class="param-label-row">
-              <span>Temperature</span>
-              <span class="param-val" id="ollama-temp-val">0.7</span>
-            </div>
-            <input type="range" id="ollama-temp" min="0" max="2" step="0.05" value="0.7" />
-          </div>
-
-          <div class="param-row">
-            <div class="param-label-row">
-              <span>Top-P (nucleus sampling)</span>
-              <span class="param-val" id="ollama-topp-val">0.9</span>
-            </div>
-            <input type="range" id="ollama-topp" min="0" max="1" step="0.05" value="0.9" />
-          </div>
-
-          <div class="param-row">
-            <div class="param-label-row">
-              <span>Repeat penalty</span>
-              <span class="param-val" id="ollama-rp-val">1.1</span>
-            </div>
-            <input type="range" id="ollama-rp" min="0.9" max="1.5" step="0.05" value="1.1" />
-          </div>
-
-          <div class="param-num-row">
-            <label for="ollama-topk">Top-K</label>
-            <input type="number" id="ollama-topk" class="param-num" min="1" max="200" step="1" value="40" />
-          </div>
-
-          <div class="param-num-row">
-            <label for="ollama-numctx">Context window (num_ctx)</label>
-            <input type="number" id="ollama-numctx" class="param-num" min="512" max="131072" step="512" value="4096" />
-          </div>
-
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="ollama">Test connection</button>
+          <span class="test-status" id="ollama-test-status"></span>
         </div>
-      </details>
-    </div>
 
-    <!-- ── OpenAI config ── -->
-    <div id="openai-config" hidden>
-      <div class="key-label-row">
-        <label for="openai-key-input">API Key</label>
-        <span class="key-status" id="openai-key-status"></span>
-      </div>
-      <div class="key-input-wrap">
-        <input type="password" id="openai-key-input" placeholder="sk-…" autocomplete="off" />
-        <button class="clear-key-btn" id="openai-clear-key" data-provider="openai" hidden title="Remove saved key">✕</button>
-      </div>
-      <label for="openai-model-select">Model</label>
-      <select id="openai-model-select">
-        <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; affordable</option>
-        <option value="gpt-4o">gpt-4o — most capable</option>
-        <option value="gpt-4.1-mini">gpt-4.1-mini — latest mini</option>
-        <option value="gpt-4.1">gpt-4.1 — latest flagship</option>
-      </select>
-    </div>
+        <details class="advanced-details">
+          <summary class="advanced-toggle">▸ Advanced model parameters</summary>
+          <div class="param-group">
 
-    <!-- ── Anthropic config ── -->
-    <div id="anthropic-config" hidden>
-      <div class="key-label-row">
-        <label for="anthropic-key-input">API Key</label>
-        <span class="key-status" id="anthropic-key-status"></span>
-      </div>
-      <div class="key-input-wrap">
-        <input type="password" id="anthropic-key-input" placeholder="sk-ant-…" autocomplete="off" />
-        <button class="clear-key-btn" id="anthropic-clear-key" data-provider="anthropic" hidden title="Remove saved key">✕</button>
-      </div>
-      <label for="anthropic-model-input">Model</label>
-      <input type="text" id="anthropic-model-input"
-             placeholder="e.g. claude-opus-4-5, claude-3-5-haiku-20241022" />
-    </div>
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Temperature</span>
+                <span class="param-val" id="ollama-temp-val">0.7</span>
+              </div>
+              <input type="range" id="ollama-temp" min="0" max="2" step="0.05" value="0.7" />
+            </div>
 
-    <!-- ── Gemini config ── -->
-    <div id="gemini-config" hidden>
-      <div class="key-label-row">
-        <label for="gemini-key-input">API Key</label>
-        <span class="key-status" id="gemini-key-status"></span>
-      </div>
-      <div class="key-input-wrap">
-        <input type="password" id="gemini-key-input" placeholder="AIza…" autocomplete="off" />
-        <button class="clear-key-btn" id="gemini-clear-key" data-provider="gemini" hidden title="Remove saved key">✕</button>
-      </div>
-      <label for="gemini-model-select">Model</label>
-      <select id="gemini-model-select">
-        <option value="gemini-2.0-flash">gemini-2.0-flash — fast &amp; free tier</option>
-        <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite — lightest</option>
-        <option value="gemini-1.5-pro">gemini-1.5-pro — high quality</option>
-        <option value="gemini-1.5-flash">gemini-1.5-flash — balanced</option>
-      </select>
-    </div>
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Top-P (nucleus sampling)</span>
+                <span class="param-val" id="ollama-topp-val">0.9</span>
+              </div>
+              <input type="range" id="ollama-topp" min="0" max="1" step="0.05" value="0.9" />
+            </div>
 
-    <!-- ── Groq config ── -->
-    <div id="groq-config" hidden>
-      <div class="key-label-row">
-        <label for="groq-key-input">API Key</label>
-        <span class="key-status" id="groq-key-status"></span>
-      </div>
-      <div class="key-input-wrap">
-        <input type="password" id="groq-key-input" placeholder="gsk_…" autocomplete="off" />
-        <button class="clear-key-btn" id="groq-clear-key" data-provider="groq" hidden title="Remove saved key">✕</button>
-      </div>
-      <label for="groq-model-select">Model</label>
-      <select id="groq-model-select">
-        <option value="llama-3.3-70b-versatile">Llama 3.3 70B — versatile</option>
-        <option value="llama-3.1-8b-instant">Llama 3.1 8B — fastest</option>
-        <option value="mixtral-8x7b-32768">Mixtral 8×7B — long context</option>
-        <option value="gemma2-9b-it">Gemma 2 9B — efficient</option>
-      </select>
-    </div>
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Repeat penalty</span>
+                <span class="param-val" id="ollama-rp-val">1.1</span>
+              </div>
+              <input type="range" id="ollama-rp" min="0.9" max="1.5" step="0.05" value="1.1" />
+            </div>
 
-    <!-- ── xAI (Grok) config ── -->
-    <div id="xai-config" hidden>
-      <div class="key-label-row">
-        <label for="xai-key-input">API Key</label>
-        <span class="key-status" id="xai-key-status"></span>
-      </div>
-      <div class="key-input-wrap">
-        <input type="password" id="xai-key-input" placeholder="xai-…" autocomplete="off" />
-        <button class="clear-key-btn" id="xai-clear-key" data-provider="xai" hidden title="Remove saved key">✕</button>
-      </div>
-      <label for="xai-model-select">Model</label>
-      <select id="xai-model-select">
-        <option value="grok-3-latest">grok-3 — flagship</option>
-        <option value="grok-3-mini-latest">grok-3-mini — fast &amp; affordable</option>
-        <option value="grok-2-latest">grok-2 — stable</option>
-        <option value="grok-beta">grok-beta — experimental</option>
-      </select>
-    </div>
+            <div class="param-num-row">
+              <label for="ollama-topk">Top-K</label>
+              <input type="number" id="ollama-topk" class="param-num" min="1" max="200" step="1" value="40" />
+            </div>
 
-    <!-- ── Custom OpenAI-compatible config ── -->
-    <div id="custom-config" hidden>
-      <p class="provider-note">
-        Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, llama.cpp server, etc.
-        Localhost endpoints require no extra setup.
+            <div class="param-num-row">
+              <label for="ollama-numctx">Context window (num_ctx)</label>
+              <input type="number" id="ollama-numctx" class="param-num" min="512" max="131072" step="512" value="16384" />
+            </div>
+
+          </div>
+        </details>
+
+        <label for="ollama-endpoint-input">Server endpoint</label>
+        <input type="text" id="ollama-endpoint-input" placeholder="http://127.0.0.1:11434" />
+        <p class="field-hint">Change this to reach Ollama on another port or machine.</p>
+      </div>
+
+      <!-- ── OpenAI ── -->
+      <div id="openai-config" hidden>
+        <div class="key-label-row">
+          <label for="openai-key-input">API Key</label>
+          <span class="key-status" id="openai-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="openai-key-input" placeholder="sk-…" autocomplete="off" />
+          <button class="clear-key-btn" id="openai-clear-key" data-provider="openai" hidden title="Remove saved key">✕</button>
+        </div>
+        <label for="openai-model-select">Model</label>
+        <select id="openai-model-select">
+          <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; affordable</option>
+          <option value="gpt-4o">gpt-4o — most capable</option>
+          <option value="gpt-4.1-mini">gpt-4.1-mini — latest mini</option>
+          <option value="gpt-4.1">gpt-4.1 — latest flagship</option>
+        </select>
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="openai">Test connection</button>
+          <span class="test-status" id="openai-test-status"></span>
+        </div>
+      </div>
+
+      <!-- ── Anthropic ── -->
+      <div id="anthropic-config" hidden>
+        <div class="key-label-row">
+          <label for="anthropic-key-input">API Key</label>
+          <span class="key-status" id="anthropic-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="anthropic-key-input" placeholder="sk-ant-…" autocomplete="off" />
+          <button class="clear-key-btn" id="anthropic-clear-key" data-provider="anthropic" hidden title="Remove saved key">✕</button>
+        </div>
+        <label for="anthropic-model-input">Model</label>
+        <input type="text" id="anthropic-model-input"
+               placeholder="e.g. claude-opus-4-5, claude-3-5-haiku-20241022" />
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="anthropic">Test connection</button>
+          <span class="test-status" id="anthropic-test-status"></span>
+        </div>
+      </div>
+
+      <!-- ── Gemini ── -->
+      <div id="gemini-config" hidden>
+        <div class="key-label-row">
+          <label for="gemini-key-input">API Key</label>
+          <span class="key-status" id="gemini-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="gemini-key-input" placeholder="AIza…" autocomplete="off" />
+          <button class="clear-key-btn" id="gemini-clear-key" data-provider="gemini" hidden title="Remove saved key">✕</button>
+        </div>
+        <label for="gemini-model-select">Model</label>
+        <select id="gemini-model-select">
+          <option value="gemini-2.0-flash">gemini-2.0-flash — fast &amp; free tier</option>
+          <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite — lightest</option>
+          <option value="gemini-1.5-pro">gemini-1.5-pro — high quality</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash — balanced</option>
+        </select>
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="gemini">Test connection</button>
+          <span class="test-status" id="gemini-test-status"></span>
+        </div>
+      </div>
+
+      <!-- ── Groq ── -->
+      <div id="groq-config" hidden>
+        <div class="key-label-row">
+          <label for="groq-key-input">API Key</label>
+          <span class="key-status" id="groq-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="groq-key-input" placeholder="gsk_…" autocomplete="off" />
+          <button class="clear-key-btn" id="groq-clear-key" data-provider="groq" hidden title="Remove saved key">✕</button>
+        </div>
+        <label for="groq-model-select">Model</label>
+        <select id="groq-model-select">
+          <option value="llama-3.3-70b-versatile">Llama 3.3 70B — versatile</option>
+          <option value="llama-3.1-8b-instant">Llama 3.1 8B — fastest</option>
+          <option value="mixtral-8x7b-32768">Mixtral 8×7B — long context</option>
+          <option value="gemma2-9b-it">Gemma 2 9B — efficient</option>
+        </select>
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="groq">Test connection</button>
+          <span class="test-status" id="groq-test-status"></span>
+        </div>
+      </div>
+
+      <!-- ── xAI (Grok) ── -->
+      <div id="xai-config" hidden>
+        <div class="key-label-row">
+          <label for="xai-key-input">API Key</label>
+          <span class="key-status" id="xai-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="xai-key-input" placeholder="xai-…" autocomplete="off" />
+          <button class="clear-key-btn" id="xai-clear-key" data-provider="xai" hidden title="Remove saved key">✕</button>
+        </div>
+        <label for="xai-model-select">Model</label>
+        <select id="xai-model-select">
+          <option value="grok-3-latest">grok-3 — flagship</option>
+          <option value="grok-3-mini-latest">grok-3-mini — fast &amp; affordable</option>
+          <option value="grok-2-latest">grok-2 — stable</option>
+          <option value="grok-beta">grok-beta — experimental</option>
+        </select>
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="xai">Test connection</button>
+          <span class="test-status" id="xai-test-status"></span>
+        </div>
+      </div>
+
+      <!-- ── Custom OpenAI-compatible ── -->
+      <div id="custom-config" hidden>
+        <p class="provider-note">
+          Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, llama.cpp server, etc.
+          Localhost endpoints require no extra setup.
+        </p>
+        <label for="custom-endpoint-input">Base URL</label>
+        <input type="text" id="custom-endpoint-input" placeholder="http://localhost:1234/v1" />
+        <label for="custom-model-input">Model name</label>
+        <input type="text" id="custom-model-input" placeholder="model identifier" />
+        <div class="key-label-row">
+          <label for="custom-key-input">API Key (optional)</label>
+          <span class="key-status" id="custom-key-status"></span>
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
+          <button class="clear-key-btn" id="custom-clear-key" data-provider="custom" hidden title="Remove saved key">✕</button>
+        </div>
+        <div class="test-row">
+          <button class="test-conn-btn" data-provider="custom">Test connection</button>
+          <span class="test-status" id="custom-test-status"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Card 2 — Review scope ═══ -->
+    <section class="settings-card">
+      <h2 class="section-label">Review scope</h2>
+      <div class="scope-grid" id="review-mode-group">
+        <button class="scope-btn" data-value="all">
+          <span class="scope-label">All</span>
+          <span class="scope-sub">most relevant</span>
+        </button>
+        <button class="scope-btn" data-value="recent">
+          <span class="scope-label">Recent</span>
+          <span class="scope-sub">newest first</span>
+        </button>
+        <button class="scope-btn" data-value="1m">
+          <span class="scope-label">1 Month</span>
+          <span class="scope-sub">30 days</span>
+        </button>
+        <button class="scope-btn" data-value="3m">
+          <span class="scope-label">3 Months</span>
+          <span class="scope-sub">90 days</span>
+        </button>
+        <button class="scope-btn" data-value="6m">
+          <span class="scope-label">6 Months</span>
+          <span class="scope-sub">180 days</span>
+        </button>
+        <button class="scope-btn" data-value="1y">
+          <span class="scope-label">1 Year</span>
+          <span class="scope-sub">365 days</span>
+        </button>
+      </div>
+
+      <div id="count-field-wrapper">
+        <label for="review-count-input">Maximum reviews to collect</label>
+        <input type="number" id="review-count-input" min="10" max="10000" step="100" value="1000" />
+        <p class="field-hint" id="review-count-hint">Upper limit on how many reviews to collect.</p>
+      </div>
+    </section>
+
+    <!-- ═══ Card 3 — Analysis ═══ -->
+    <section class="settings-card">
+      <h2 class="section-label">Analysis</h2>
+
+      <label>Depth</label>
+      <!-- Labels and hints are filled from ANALYSIS_DEPTHS in config.ts -->
+      <div class="scope-grid" id="analysis-depth-group">
+        <button class="scope-btn" data-value="quick">
+          <span class="scope-label">Quick</span>
+          <span class="scope-sub">~100 reviews · fastest</span>
+        </button>
+        <button class="scope-btn" data-value="balanced">
+          <span class="scope-label">Balanced</span>
+          <span class="scope-sub">~250 reviews · default</span>
+        </button>
+        <button class="scope-btn" data-value="thorough">
+          <span class="scope-label">Thorough</span>
+          <span class="scope-sub">~500 reviews · slowest</span>
+        </button>
+      </div>
+      <p class="field-hint">
+        How many collected reviews reach the model. More is slower and, on a local
+        model, needs a larger context window.
       </p>
-      <label for="custom-endpoint-input">Base URL</label>
-      <input type="text" id="custom-endpoint-input" placeholder="http://localhost:1234/v1" />
-      <label for="custom-model-input">Model name</label>
-      <input type="text" id="custom-model-input" placeholder="model identifier" />
-      <div class="key-label-row">
-        <label for="custom-key-input">API Key (optional)</label>
-        <span class="key-status" id="custom-key-status"></span>
+
+      <label for="output-language-select">Output language</label>
+      <select id="output-language-select">
+        <option value="auto">Auto (match reviews)</option>
+        <option value="English">English</option>
+        <option value="Traditional Chinese">繁體中文</option>
+        <option value="Simplified Chinese">简体中文</option>
+        <option value="Japanese">日本語</option>
+        <option value="Korean">한국어</option>
+        <option value="Spanish">Español</option>
+        <option value="French">Français</option>
+        <option value="German">Deutsch</option>
+        <option value="Portuguese">Português</option>
+        <option value="Italian">Italiano</option>
+      </select>
+    </section>
+
+    <!-- ═══ Card 4 — Advanced ═══ -->
+    <details class="settings-card advanced-details">
+      <summary class="advanced-toggle">▸ Advanced</summary>
+      <div class="settings-card-body">
+        <button class="btn btn-secondary" id="reset-settings-btn">Reset to defaults</button>
+        <p class="field-hint" style="margin-top:8px; margin-bottom:0;">
+          Restores every setting. Saved API keys and your custom endpoint are kept.
+        </p>
       </div>
-      <div class="key-input-wrap">
-        <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
-        <button class="clear-key-btn" id="custom-clear-key" data-provider="custom" hidden title="Remove saved key">✕</button>
+    </details>
+
+    <div class="settings-actions">
+      <button class="btn btn-primary" data-action="save-settings">Save &amp; Analyze</button>
+      <div class="btn-row">
+        <button class="btn btn-secondary" data-action="save-settings-only">Save</button>
+        <button class="btn btn-secondary" data-action="cancel-settings">Cancel</button>
       </div>
     </div>
-
-    <!-- ── Review scope ── -->
-    <label>Review scope</label>
-    <div class="scope-grid" id="review-mode-group">
-      <button class="scope-btn" data-value="all">
-        <span class="scope-label">All</span>
-        <span class="scope-sub">all time</span>
-      </button>
-      <button class="scope-btn" data-value="recent">
-        <span class="scope-label">Recent</span>
-        <span class="scope-sub">by count</span>
-      </button>
-      <button class="scope-btn" data-value="1m">
-        <span class="scope-label">1 Month</span>
-        <span class="scope-sub">30 days</span>
-      </button>
-      <button class="scope-btn" data-value="3m">
-        <span class="scope-label">3 Months</span>
-        <span class="scope-sub">90 days</span>
-      </button>
-      <button class="scope-btn" data-value="6m">
-        <span class="scope-label">6 Months</span>
-        <span class="scope-sub">180 days</span>
-      </button>
-      <button class="scope-btn" data-value="1y">
-        <span class="scope-label">1 Year</span>
-        <span class="scope-sub">365 days</span>
-      </button>
-    </div>
-
-    <div id="count-field-wrapper">
-      <label for="review-count-input">Maximum reviews to collect</label>
-      <input type="number" id="review-count-input" min="10" max="2000" step="100" value="1000" />
-    </div>
-
-    <button class="btn btn-primary" data-action="save-settings">Save &amp; Analyze</button>
-    <button class="btn btn-secondary" data-action="save-settings-only">Save</button>
-    <button class="btn btn-secondary" data-action="cancel-settings">Cancel</button>
   </div>
 
   <!-- ── Loading screen ── -->
@@ -1034,7 +1252,7 @@
     </div>
     <div style="display:flex; gap:8px; justify-content:center;">
       <button class="icon-btn" id="summarize-now-btn"
-              style="padding:6px 14px; font-size:12px; border-color:var(--accent); color:var(--accent);">
+              style="padding:6px 14px; font-size:12px; border-color:var(--accent); color:var(--accent-text);">
         ⚡ Summarize Now
       </button>
       <button class="icon-btn" id="cancel-btn" style="padding:6px 14px; font-size:12px;">
@@ -1055,7 +1273,8 @@
       <div data-field="sentiment" class="sentiment-badge"></div>
     </div>
 
-    <div class="result-body">
+    <div class="result-body scroll-area">
+      <div class="result-warning" id="result-warning" hidden></div>
       <div class="summary-box" data-field="summary"></div>
 
       <div class="section-title pros-title">✓ What people love</div>

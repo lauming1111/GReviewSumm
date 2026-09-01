@@ -55,22 +55,14 @@ export const AI_DEFAULTS = {
     REQUEST_TIMEOUT_MS: 120000,
     /** Upper bound on generated tokens — must fit the full JSON result object */
     MAX_OUTPUT_TOKENS: 2048,
-    /**
-     * Hard cap on how many reviews are serialized into a single prompt.
-     * Without this a 1000-review place produced a ~68k-token prompt that no
-     * local model could read, while still paying full prompt-processing cost.
-     */
-    MAX_REVIEWS_TO_AI: 250,
     /** Per-review character cap inside the prompt */
     MAX_REVIEW_CHARS: 400,
-    /**
-     * Hard ceiling on the characters spent on review text in one prompt.
-     * MAX_REVIEWS_TO_AI alone does NOT bound prompt size — 250 verbose reviews
-     * still reach ~25k tokens, well past OLLAMA_NUM_CTX. ~48k chars ≈ 12k tokens,
-     * which leaves room for the static template and MAX_OUTPUT_TOKENS inside a
-     * 16k context window.
-     */
-    MAX_PROMPT_CHARS: 48000,
+    /** Default depth preset when a profile has not chosen one */
+    ANALYSIS_DEPTH: 'balanced',
+    /** Base URL of the local Ollama server (user-overridable per profile) */
+    OLLAMA_ENDPOINT: 'http://127.0.0.1:11434',
+    /** Default output language — 'auto' follows the reviews' own language */
+    OUTPUT_LANGUAGE: 'auto',
     /** Default Anthropic model */
     ANTHROPIC_MODEL: 'claude-3-5-haiku-20241022',
     /** Default Google Gemini model */
@@ -86,8 +78,48 @@ export const AI_DEFAULTS = {
     OLLAMA_TOP_K: 40,
     /** Top-P (nucleus) sampling */
     OLLAMA_TOP_P: 0.9,
-    /** Context window in tokens — must fit MAX_PROMPT_CHARS plus MAX_OUTPUT_TOKENS */
+    /** Context window in tokens — must fit the depth budget plus MAX_OUTPUT_TOKENS */
     OLLAMA_NUM_CTX: 16384,
     /** Repeat penalty — discourages repetition (1.0 = off) */
     OLLAMA_REPEAT_PENALTY: 1.1,
 };
+// ─── Analysis depth ──────────────────────────────────────────────────────────
+/**
+ * How much of the collected review set reaches the model.
+ *
+ * A review count alone does NOT bound prompt size — 250 verbose reviews still
+ * reach ~25k tokens — so every preset carries a hard character budget too.
+ * Both are enforced in background.ts (selectReviewsForPrompt / enforceCharBudget).
+ */
+export const ANALYSIS_DEPTHS = {
+    quick: { maxReviews: 100, maxChars: 20000, label: 'Quick', hint: '~100 reviews · fastest' },
+    balanced: { maxReviews: 250, maxChars: 48000, label: 'Balanced', hint: '~250 reviews · default' },
+    thorough: { maxReviews: 500, maxChars: 96000, label: 'Thorough', hint: '~500 reviews · slowest' },
+};
+// ─── Prompt budgeting ────────────────────────────────────────────────────────
+export const PROMPT_BUDGET = {
+    /**
+     * Rough characters-per-token for English prose. Deliberately optimistic
+     * (real English is ~4) so the derived character budget errs on the small side.
+     */
+    CHARS_PER_TOKEN: 3.5,
+    /** Approximate size of the non-review scaffolding in buildPrompt(). */
+    STATIC_PROMPT_CHARS: 1500,
+    /** Serialization overhead per review: "[Review 999] ⭐4/5 — " plus the join. */
+    PER_REVIEW_OVERHEAD: 24,
+};
+// ─── Output languages ────────────────────────────────────────────────────────
+/** Offered in the settings picker. 'auto' follows the reviews' own language. */
+export const OUTPUT_LANGUAGES = [
+    { value: 'auto', label: 'Auto (match reviews)' },
+    { value: 'English', label: 'English' },
+    { value: 'Traditional Chinese', label: '繁體中文' },
+    { value: 'Simplified Chinese', label: '简体中文' },
+    { value: 'Japanese', label: '日本語' },
+    { value: 'Korean', label: '한국어' },
+    { value: 'Spanish', label: 'Español' },
+    { value: 'French', label: 'Français' },
+    { value: 'German', label: 'Deutsch' },
+    { value: 'Portuguese', label: 'Português' },
+    { value: 'Italian', label: 'Italiano' },
+];

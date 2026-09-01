@@ -20,6 +20,8 @@ and cloud providers including OpenAI, Anthropic Claude, Google Gemini, Groq, and
 - **Cached results** — analysis is cached for 24 hours; history screen lets you browse and re-open past summaries
 - **Time-based filtering** — analyze all reviews, the most recent N, or reviews from the last 1/3/6/12 months
 - **Wrong-page detection** — friendly prompt when the extension is opened on a non-Maps tab
+- **Accessible** — WCAG AA contrast throughout and a visible keyboard focus ring on every control
+- **Fully offline UI** — fonts are bundled, so the popup makes no third-party requests
 
 ## Screenshots
 
@@ -87,10 +89,14 @@ Click ⚙ in the top-right to configure:
 | Setting | Description |
 |---|---|
 | **AI Provider** | Ollama · OpenAI · Anthropic · Gemini · Groq · xAI Grok · Custom endpoint |
-| **Model** | Provider-specific model selector or free-text input |
+| **Model** | Provider-specific selector; the Ollama field autocompletes from your installed models |
+| **Test connection** | Validates the key or endpoint before running an analysis |
+| **Ollama endpoint** | Base URL of your Ollama server — change it to reach another port or machine |
 | **Ollama parameters** | Temperature, top-p, top-k, repeat penalty, context window |
-| **Review scope** | All time · Recent (by count) · Last 1/3/6/12 months |
-| **Maximum reviews** | How many reviews to collect (10–2000, default 1000) |
+| **Review scope** | All (most relevant) · Recent (newest first) · Last 1/3/6/12 months |
+| **Maximum reviews** | How many reviews to collect (10–10,000, default 1000) |
+| **Analysis depth** | Quick / Balanced / Thorough — how many collected reviews reach the model |
+| **Output language** | Auto (match the reviews) or a specific language |
 
 ### How reviews are analyzed
 
@@ -117,6 +123,7 @@ google-review-summary/
 │   │   ├── config.ts         # Centralised constants and defaults
 │   │   └── types.ts          # Shared types & message contracts
 │   ├── popup.html            # Popup UI (dark theme)
+│   ├── fonts/                # Self-hosted Syne + DM Sans (variable woff2)
 │   ├── manifest.json         # Extension manifest (MV3)
 │   ├── build.js              # Post-compile copy script
 │   ├── tsconfig.json

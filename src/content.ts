@@ -1,4 +1,4 @@
-import type { Review, MessageType, ScrollConfig } from './types.js';
+import type { Review, MessageType, ReviewSort, ScrollConfig } from './types.js';
 
 const REVIEW_CARD_SELECTOR = '[data-review-id]';
 
@@ -34,6 +34,74 @@ async function ensureReviewsTabOpen(tabOpenWaitMs: number): Promise<void> {
     console.log('[GReviewSumm] Clicked Reviews tab, waiting for cards…');
     await sleep(tabOpenWaitMs);
   }
+}
+
+// ─── Sort order ───────────────────────────────────────────────────────────────
+
+/** Text that identifies the desired option inside the sort menu. */
+const SORT_OPTION_PATTERN: Record<ReviewSort, RegExp> = {
+  newest:    /newest/i,
+  relevance: /most relevant|relevance/i,
+};
+
+/**
+ * Put the reviews list into the requested sort order.
+ *
+ * Google Maps sorts by "Most relevant" by default, so taking the first N cards
+ * yields the most-relevant N, not the newest N.
+ *
+ * This MUST be able to set the order in both directions. The sort survives
+ * across popup invocations within the same tab, so a run with scope 'recent'
+ * leaves the page sorted newest; a later 'all' run would then silently scrape a
+ * newest-ordered list and cache it under the 'relevance' key.
+ *
+ * Best-effort: if the control cannot be found the caller proceeds with whatever
+ * order the page is in. Returns true when the order was actually changed.
+ */
+async function ensureSortOrder(sortBy: ReviewSort, pollMs: number, timeoutMs: number): Promise<boolean> {
+  const TRIGGER = /^(sort|most relevant|newest|highest rating|lowest rating)/i;
+  const wanted = SORT_OPTION_PATTERN[sortBy];
+
+  const trigger = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+    .find((el) => {
+      const label = `${el.getAttribute('aria-label') ?? ''} ${el.textContent ?? ''}`.trim();
+      return TRIGGER.test(label) && el.getClientRects().length > 0;
+    });
+
+  if (!trigger) {
+    console.log('[GReviewSumm] Sort control not found — leaving the page order as-is');
+    return false;
+  }
+
+  // The trigger label reflects the active sort, so this doubles as the
+  // already-in-the-right-order check.
+  const current = `${trigger.getAttribute('aria-label') ?? ''} ${trigger.textContent ?? ''}`;
+  if (wanted.test(current)) return false;
+
+  trigger.click();
+
+  // The menu renders asynchronously.
+  const deadline = Date.now() + timeoutMs;
+  let option: HTMLElement | undefined;
+  for (;;) {
+    option = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"], [role="option"]')
+    ).find((el) => wanted.test(el.textContent ?? ''));
+    if (option || Date.now() >= deadline) break;
+    await sleep(pollMs);
+  }
+
+  if (!option) {
+    console.log(`[GReviewSumm] "${sortBy}" sort option not found — leaving the page order as-is`);
+    trigger.click(); // close the menu we opened
+    return false;
+  }
+
+  option.click();
+  console.log(`[GReviewSumm] Sorted reviews by ${sortBy}`);
+  // Maps tears down and rebuilds the list after a sort change.
+  await sleep(timeoutMs);
+  return true;
 }
 
 // ─── Scroll container ─────────────────────────────────────────────────────────
@@ -317,9 +385,15 @@ const DEFAULT_SCROLL_CONFIG: ScrollConfig = {
 
 async function scrollAndScrapeReviews(
   maxReviews: number,
-  cfg: ScrollConfig = DEFAULT_SCROLL_CONFIG
+  cfg: ScrollConfig = DEFAULT_SCROLL_CONFIG,
+  sortBy: ReviewSort = 'relevance'
 ): Promise<{ reviews: Review[]; placeName: string; googleRating?: number; googleReviewCount?: number }> {
   await ensureReviewsTabOpen(cfg.tabOpenWaitMs);
+
+  // Must happen BEFORE any collection — changing the sort rebuilds the list.
+  // Called unconditionally: the previous run may have left the page in the
+  // other order, and that order persists in the tab.
+  await ensureSortOrder(sortBy, cfg.pollIntervalMs, cfg.scrollWaitMs);
 
   const initialCards = getReviewCards();
   if (initialCards.length === 0) {
@@ -464,6 +538,7 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendRespons
         const result = await scrollAndScrapeReviews(
           message.maxReviews ?? DEFAULT_MAX_REVIEWS,
           message.scrollConfig ?? DEFAULT_SCROLL_CONFIG,
+          message.sortBy ?? 'relevance',
         );
         if (result.reviews.length === 0) {
           sendResponse({ type: 'NO_REVIEWS' } satisfies MessageType);

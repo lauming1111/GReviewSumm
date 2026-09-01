@@ -1,7 +1,11 @@
-import type { MessageType, Review, ReviewSettings, SummaryResult } from './types.js';
-import { AI_DEFAULTS } from './config.js';
+import type { MessageType, Review, ReviewSettings, Sentiment, SummaryResult } from './types.js';
+import { SENTIMENTS } from './types.js';
+import { AI_DEFAULTS, ANALYSIS_DEPTHS, PROMPT_BUDGET } from './config.js';
 
-const OLLAMA_BASE = 'http://127.0.0.1:11434';
+/** Ollama base URL for this request — user-configurable, trailing slashes stripped. */
+function ollamaBase(settings: ReviewSettings): string {
+  return (settings.ollamaEndpoint || AI_DEFAULTS.OLLAMA_ENDPOINT).replace(/\/+$/, '');
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,12 +53,20 @@ function getCutoffDate(mode: ReviewSettings['reviewMode']): Date | null {
   return cutoff;
 }
 
-function filterReviews(reviews: Review[], settings: ReviewSettings): Review[] {
-  if (settings.reviewMode === 'all') return reviews.slice(0, settings.reviewCount);
-  if (settings.reviewMode === 'recent') return reviews.slice(0, settings.reviewCount);
+interface FilterOutcome {
+  reviews: Review[];
+  dateParseWarning?: string;
+}
+
+function filterReviews(reviews: Review[], settings: ReviewSettings): FilterOutcome {
+  // 'all' analyses everything that was collected — the scrape ceiling already
+  // bounded it. 'recent' takes strictly the newest N, and the content script
+  // sorted the page by newest first so "newest" really is newest, not most-relevant.
+  if (settings.reviewMode === 'all')    return { reviews };
+  if (settings.reviewMode === 'recent') return { reviews: reviews.slice(0, settings.reviewCount) };
 
   const cutoff = getCutoffDate(settings.reviewMode);
-  if (!cutoff) return reviews.slice(0, settings.reviewCount);
+  if (!cutoff) return { reviews: reviews.slice(0, settings.reviewCount) };
 
   // Reviews whose date string cannot be parsed are KEPT, not dropped. Dropping
   // them meant a single Google layout or locale change silently emptied every
@@ -65,10 +77,20 @@ function filterReviews(reviews: Review[], settings: ReviewSettings): Review[] {
     if (!d) { unparseable++; return true; }
     return d >= cutoff;
   });
+
+  let dateParseWarning: string | undefined;
   if (unparseable > 0) {
-    console.warn(`[GReviewSumm] ${unparseable} review(s) had an unparseable date — kept rather than dropped.`);
+    console.warn(`[GReviewSumm] ${unparseable}/${reviews.length} review(s) had an unparseable date — kept rather than dropped.`);
+    // parseReviewDate only understands English relative dates, so on a
+    // non-English Maps locale every date fails and the time window silently
+    // degrades to "all". Tell the user instead of only the console.
+    if (unparseable > reviews.length / 2) {
+      dateParseWarning =
+        `${unparseable} of ${reviews.length} review dates could not be read, so the time filter ` +
+        'could not be applied to them. This usually means Google Maps is in a non-English language.';
+    }
   }
-  return kept.slice(0, settings.reviewCount);
+  return { reviews: kept.slice(0, settings.reviewCount), dateParseWarning };
 }
 
 // ─── Prompt sampling ──────────────────────────────────────────────────────────
@@ -83,7 +105,36 @@ function isComplaint(r: Review): boolean {
 }
 
 /**
- * Pick at most MAX_REVIEWS_TO_AI reviews to serialize into the prompt.
+ * Characters of review text this request may spend.
+ *
+ * Starts from the depth preset, then — for Ollama only — clamps to what the
+ * user's context window can actually hold. num_ctx is editable down to 512,
+ * and nothing previously revalidated the budget against it, so a small context
+ * window silently overflowed the prompt.
+ */
+function resolveCharBudget(settings: ReviewSettings, depthChars: number): number {
+  if ((settings.aiProvider ?? 'ollama') !== 'ollama') return depthChars;
+
+  const numCtx = settings.ollamaParams?.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX;
+  const promptTokens = numCtx - AI_DEFAULTS.MAX_OUTPUT_TOKENS;
+  const fromCtx =
+    promptTokens * PROMPT_BUDGET.CHARS_PER_TOKEN - PROMPT_BUDGET.STATIC_PROMPT_CHARS;
+
+  // A tiny num_ctx can make this zero or negative — keep a floor so we always
+  // send at least a handful of reviews rather than an empty prompt.
+  const clamped = Math.max(2_000, Math.floor(fromCtx));
+  if (clamped < depthChars) {
+    console.warn(
+      `[GReviewSumm] num_ctx ${numCtx} limits the prompt to ~${clamped.toLocaleString()} chars ` +
+      `(depth preset allows ${depthChars.toLocaleString()}). Raise num_ctx for a fuller analysis.`
+    );
+  }
+  return Math.min(depthChars, clamped);
+}
+
+/**
+ * Pick the reviews to serialize into the prompt, bounded by BOTH a count cap
+ * and a character budget.
  *
  * Sending everything produced a ~68k-token prompt for a 1000-review place —
  * far beyond any local model's context, so the model silently read a fraction
@@ -93,9 +144,14 @@ function isComplaint(r: Review): boolean {
  * input and are what "cons" is built from), then stride-sample the remainder so
  * the selection spans the full time range rather than only the newest reviews.
  */
-function selectReviewsForPrompt(reviews: Review[]): Review[] {
-  const cap = AI_DEFAULTS.MAX_REVIEWS_TO_AI;
-  if (reviews.length <= cap) return enforceCharBudget(reviews.map(truncateReview));
+function selectReviewsForPrompt(reviews: Review[], settings: ReviewSettings): Review[] {
+  const depth = ANALYSIS_DEPTHS[settings.analysisDepth ?? AI_DEFAULTS.ANALYSIS_DEPTH];
+  const cap = depth.maxReviews;
+  const charBudget = resolveCharBudget(settings, depth.maxChars);
+
+  if (reviews.length <= cap) {
+    return enforceCharBudget(reviews.map(truncateReview), charBudget);
+  }
 
   const complaints = reviews.filter(isComplaint);
   const rest = reviews.filter((r) => !isComplaint(r));
@@ -116,22 +172,21 @@ function selectReviewsForPrompt(reviews: Review[]): Review[] {
     }
   }
 
-  return enforceCharBudget(kept.map(truncateReview));
+  return enforceCharBudget(kept.map(truncateReview), charBudget);
 }
 
 /**
- * Trim the selection so the serialized review text fits MAX_PROMPT_CHARS.
+ * Trim the selection so the serialized review text fits the character budget.
  * The count cap alone is not enough: 250 reviews at MAX_REVIEW_CHARS each
  * would still overflow the context window. Complaints sort first in `kept`,
  * so they survive trimming.
  */
-function enforceCharBudget(reviews: Review[]): Review[] {
-  const PER_REVIEW_OVERHEAD = 24; // "[Review 999] ⭐4/5 — " plus the "\n\n" join
+function enforceCharBudget(reviews: Review[], budget: number): Review[] {
   let used = 0;
   const out: Review[] = [];
   for (const r of reviews) {
-    const cost = r.text.length + PER_REVIEW_OVERHEAD;
-    if (used + cost > AI_DEFAULTS.MAX_PROMPT_CHARS) break;
+    const cost = r.text.length + PROMPT_BUDGET.PER_REVIEW_OVERHEAD;
+    if (used + cost > budget) break;
     out.push(r);
     used += cost;
   }
@@ -140,7 +195,24 @@ function enforceCharBudget(reviews: Review[]): Review[] {
 
 // ─── Shared prompt + result builder ──────────────────────────────────────────
 
-function buildPrompt(reviews: Review[], placeName: string, totalCollected: number): string {
+/**
+ * Language directive. Without one the output language was undefined behaviour —
+ * it depended on the provider's default and on the language of the reviews, and
+ * could differ between runs for the same place.
+ */
+function languageRule(outputLanguage?: string): string {
+  const lang = outputLanguage ?? AI_DEFAULTS.OUTPUT_LANGUAGE;
+  return lang === 'auto'
+    ? '- Write every human-readable string in your response (summary, pros, cons, topThemes) in the dominant language of the reviews above. Keep the JSON keys and the overallSentiment value in English.'
+    : `- Write every human-readable string in your response (summary, pros, cons, topThemes) in ${lang}, regardless of the language of the reviews. Keep the JSON keys and the overallSentiment value in English.`;
+}
+
+function buildPrompt(
+  reviews: Review[],
+  placeName: string,
+  totalCollected: number,
+  settings: ReviewSettings
+): string {
   const reviewsText = reviews
     .map((r, i) => `[Review ${i + 1}] ⭐${r.rating}/5 — ${r.text}`)
     .join('\n\n');
@@ -166,6 +238,8 @@ Rules:
 - topThemes are 1–3 word topics that appear most often (e.g. "parking", "wait times", "staff")
 - overallSentiment reflects the general tone across all reviews
 - notableStaff: list only the first names (or full names) of EMPLOYEES or STAFF of "${placeName}" who are praised or mentioned by name in at least 2 different reviews; DO NOT include the names of customers or reviewers (i.e. the people who wrote the reviews), DO NOT include business names, brand names, platforms, or services; if no staff members can be clearly identified return []
+- overallSentiment MUST be exactly one of: positive, neutral, negative, mixed
+${languageRule(settings.outputLanguage)}
 - Be concise but informative`;
 }
 
@@ -189,17 +263,33 @@ async function readJsonBody(response: Response, provider: string): Promise<Retur
   }
 }
 
+/**
+ * Coerce the model's sentiment string to one the UI can render.
+ * Unvalidated, a model answering in another language returned a translated word
+ * that reached sentimentLabel[...] in the popup and rendered a blank badge.
+ */
+function toSentiment(raw: unknown): Sentiment {
+  if (typeof raw === 'string') {
+    const v = raw.trim().toLowerCase();
+    const hit = SENTIMENTS.find((s) => s === v);
+    if (hit) return hit;
+    console.warn(`[GReviewSumm] Unrecognised overallSentiment ${JSON.stringify(raw)} — using 'mixed'.`);
+  }
+  return 'mixed';
+}
+
 function buildResult(
   parsed: ReturnType<typeof JSON.parse>,
   placeName: string,
   avgRating: number,
   totalReviews: number,
   analyzedCount: number,
-  collectedCount: number
+  collectedCount: number,
+  dateParseWarning?: string
 ): SummaryResult {
   return {
     placeName,
-    overallSentiment: parsed.overallSentiment ?? 'mixed',
+    overallSentiment: toSentiment(parsed.overallSentiment),
     averageRating: Math.round(avgRating * 10) / 10,
     totalReviews,
     pros: parsed.pros ?? [],
@@ -209,6 +299,7 @@ function buildResult(
     notableStaff: parsed.notableStaff ?? [],
     analyzedCount,
     collectedCount,
+    ...(dateParseWarning && { dateParseWarning }),
   };
 }
 
@@ -272,13 +363,17 @@ async function callOpenAICompatible(
 
 type ProviderCall = (prompt: string, settings: ReviewSettings) => Promise<string>;
 
-async function checkOllama(): Promise<void> {
+async function checkOllama(settings: ReviewSettings): Promise<void> {
+  const base = ollamaBase(settings);
   try {
-    const res = await fetch(`${OLLAMA_BASE}/api/tags`);
+    // Goes through fetchWithTimeout like every other call — a hung server here
+    // previously blocked the whole analysis with no timeout at all.
+    const res = await fetchWithTimeout(`${base}/api/tags`, { method: 'GET' });
     if (!res.ok) throw new Error(`status ${res.status}`);
   } catch {
     throw new Error(
-      'Cannot reach Ollama at localhost:11434. Make sure Ollama is running (`ollama serve`) and try again.'
+      `Cannot reach Ollama at ${base}. Make sure it is running (\`ollama serve\`), ` +
+      'or change the server endpoint in ⚙ Settings → AI Provider → Ollama.'
     );
   }
 }
@@ -294,7 +389,7 @@ const callOllama: ProviderCall = async (prompt, settings) => {
   if (p.numCtx        !== undefined) options.num_ctx        = p.numCtx;
   if (p.repeatPenalty !== undefined) options.repeat_penalty = p.repeatPenalty;
 
-  const response = await fetchWithTimeout(`${OLLAMA_BASE}/api/generate`, {
+  const response = await fetchWithTimeout(`${ollamaBase(settings)}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, prompt, stream: false, options }),
@@ -440,6 +535,105 @@ const PROVIDER_CALL: Record<string, ProviderCall> = {
   custom:    callCustom,
 };
 
+// ─── Connection test / model listing ─────────────────────────────────────────
+
+interface ConnectionResult { ok: boolean; message: string; models?: string[] }
+
+/**
+ * Validate credentials and reachability using each provider's model-list
+ * endpoint. These are free — no tokens are generated — so this is safe to run
+ * on demand, and it returns the model list the picker needs from the same call.
+ */
+async function testConnection(settings: ReviewSettings): Promise<ConnectionResult> {
+  const provider = settings.aiProvider ?? 'ollama';
+
+  let url: string;
+  const headers: Record<string, string> = {};
+
+  switch (provider) {
+    case 'ollama':
+      url = `${ollamaBase(settings)}/api/tags`;
+      break;
+    case 'openai':
+      if (!settings.openaiApiKey) return { ok: false, message: 'No API key set.' };
+      url = 'https://api.openai.com/v1/models';
+      headers['Authorization'] = `Bearer ${settings.openaiApiKey}`;
+      break;
+    case 'groq':
+      if (!settings.groqApiKey) return { ok: false, message: 'No API key set.' };
+      url = 'https://api.groq.com/openai/v1/models';
+      headers['Authorization'] = `Bearer ${settings.groqApiKey}`;
+      break;
+    case 'xai':
+      if (!settings.xaiApiKey) return { ok: false, message: 'No API key set.' };
+      url = 'https://api.x.ai/v1/models';
+      headers['Authorization'] = `Bearer ${settings.xaiApiKey}`;
+      break;
+    case 'anthropic':
+      if (!settings.anthropicApiKey) return { ok: false, message: 'No API key set.' };
+      url = 'https://api.anthropic.com/v1/models';
+      headers['x-api-key'] = settings.anthropicApiKey;
+      headers['anthropic-version'] = '2023-06-01';
+      break;
+    case 'gemini':
+      if (!settings.geminiApiKey) return { ok: false, message: 'No API key set.' };
+      url = `https://generativelanguage.googleapis.com/v1beta/models?key=${settings.geminiApiKey}`;
+      break;
+    case 'custom':
+      if (!settings.customEndpoint) return { ok: false, message: 'No endpoint URL set.' };
+      url = `${settings.customEndpoint.replace(/\/+$/, '')}/models`;
+      if (settings.customApiKey) headers['Authorization'] = `Bearer ${settings.customApiKey}`;
+      break;
+    default:
+      return { ok: false, message: `Unknown provider: ${provider}` };
+  }
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, { method: 'GET', headers });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      message: provider === 'ollama'
+        ? `Cannot reach ${ollamaBase(settings)} — is Ollama running?`
+        : `Could not reach the provider: ${detail}`,
+    };
+  }
+
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 160);
+    const hint =
+      response.status === 401 || response.status === 403 ? ' — the API key looks wrong.' :
+      response.status === 404 ? ' — check the endpoint URL.' : '';
+    return { ok: false, message: `HTTP ${response.status}${hint} ${body}`.trim() };
+  }
+
+  let data: ReturnType<typeof JSON.parse>;
+  try {
+    data = await readJsonBody(response, provider);
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+
+  const models = extractModelNames(provider, data);
+  return {
+    ok: true,
+    message: models.length > 0 ? `Connected · ${models.length} models available` : 'Connected',
+    models,
+  };
+}
+
+/** Each provider reports its model list under a different shape. */
+function extractModelNames(provider: string, data: ReturnType<typeof JSON.parse>): string[] {
+  const names: unknown[] =
+    provider === 'ollama' ? (data?.models ?? []).map((m: { name?: string }) => m?.name) :
+    provider === 'gemini' ? (data?.models ?? []).map((m: { name?: string }) => m?.name?.replace(/^models\//, '')) :
+    (data?.data ?? []).map((m: { id?: string }) => m?.id);
+
+  return names.filter((n): n is string => typeof n === 'string' && n.length > 0).sort();
+}
+
 // ─── Retry helper ─────────────────────────────────────────────────────────────
 
 /**
@@ -475,22 +669,23 @@ async function summarize(
   const provider = settings.aiProvider ?? 'ollama';
   const call = PROVIDER_CALL[provider] ?? callOllama;
 
-  const filtered = filterReviews(reviews, settings);
+  const { reviews: filtered, dateParseWarning } = filterReviews(reviews, settings);
   if (filtered.length === 0) {
     throw new Error('No reviews matched the selected time range. Try widening the review scope in ⚙ Settings.');
   }
 
   // Everything below is computed ONCE — the retry closure covers only the
   // model call and the parse of its output.
-  const selected  = selectReviewsForPrompt(filtered);
+  const selected  = selectReviewsForPrompt(filtered, settings);
   const avgRating = computeAvg(filtered, googleRating);
-  const prompt    = buildPrompt(selected, placeName, filtered.length);
+  const prompt    = buildPrompt(selected, placeName, filtered.length, settings);
 
-  if (provider === 'ollama') await checkOllama();
+  if (provider === 'ollama') await checkOllama(settings);
 
   console.log(
-    `[GReviewSumm] ${provider}: ${selected.length} of ${filtered.length} reviews in prompt ` +
-    `(~${Math.round(prompt.length / 4).toLocaleString()} tokens)`
+    `[GReviewSumm] ${provider} · depth=${settings.analysisDepth ?? AI_DEFAULTS.ANALYSIS_DEPTH} · ` +
+    `${selected.length} of ${filtered.length} reviews in prompt ` +
+    `(~${Math.round(prompt.length / PROMPT_BUDGET.CHARS_PER_TOKEN).toLocaleString()} tokens)`
   );
 
   const parsed = await withRetry(async () => parseAIResponse(await call(prompt, settings)));
@@ -501,7 +696,8 @@ async function summarize(
     avgRating,
     googleReviewCount ?? reviews.length,
     selected.length,
-    filtered.length
+    filtered.length,
+    dateParseWarning
   );
 }
 
@@ -517,6 +713,17 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendRespons
       .catch((err: unknown) => sendResponse({
         type: 'ERROR',
         payload: err instanceof Error ? err.message : String(err),
+      } satisfies MessageType));
+
+    return true;
+  }
+
+  if (message.type === 'TEST_CONNECTION') {
+    testConnection(message.payload.settings)
+      .then((result) => sendResponse({ type: 'CONNECTION_RESULT', payload: result } satisfies MessageType))
+      .catch((err: unknown) => sendResponse({
+        type: 'CONNECTION_RESULT',
+        payload: { ok: false, message: err instanceof Error ? err.message : String(err) },
       } satisfies MessageType));
 
     return true;
