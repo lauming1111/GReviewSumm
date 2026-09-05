@@ -1,5 +1,5 @@
-import type { MessageType, Review, ReviewSettings, ReviewSort, SummaryResult } from './types.js';
-import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS, CACHE_CONFIG, ANALYSIS_DEPTHS } from './config.js';
+import type { MessageType, ModelParams, Review, ReviewSettings, ReviewSort, SummaryResult } from './types.js';
+import { SCROLL_CONFIG, POPUP_CONFIG, AI_DEFAULTS, CACHE_CONFIG, ANALYSIS_DEPTHS, LOCAL_PRESETS } from './config.js';
 import { encryptApiKey, decryptApiKey } from './crypto.js';
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -27,6 +27,8 @@ const DEFAULT_SETTINGS: ReviewSettings = {
   ollamaEndpoint: AI_DEFAULTS.OLLAMA_ENDPOINT,
   ollamaModel: AI_DEFAULTS.OLLAMA_MODEL,
   ollamaParams: {},
+  customParams: {},
+  customSendExtraParams: true,
   openaiModel: AI_DEFAULTS.OPENAI_MODEL,
   anthropicModel: AI_DEFAULTS.ANTHROPIC_MODEL,
   geminiModel: AI_DEFAULTS.GEMINI_MODEL,
@@ -165,6 +167,38 @@ function setSlider(inputId: string, valId: string, value: number): void {
   if (label) label.textContent = String(value);
 }
 
+// ─── Model parameters (shared by every local provider) ───────────────────────
+//
+// Ollama and any OpenAI-compatible local server expose the same knobs, so the
+// same markup and the same code drive both — only the element-id prefix differs.
+
+function applyParamsToUI(prefix: string, params: ModelParams | undefined): void {
+  const p = params ?? {};
+  setSlider(`${prefix}-temp`, `${prefix}-temp-val`, p.temperature   ?? AI_DEFAULTS.OLLAMA_TEMPERATURE);
+  setSlider(`${prefix}-topp`, `${prefix}-topp-val`, p.topP          ?? AI_DEFAULTS.OLLAMA_TOP_P);
+  setSlider(`${prefix}-rp`,   `${prefix}-rp-val`,   p.repeatPenalty ?? AI_DEFAULTS.OLLAMA_REPEAT_PENALTY);
+  const topkEl   = document.querySelector<HTMLInputElement>(`#${prefix}-topk`);
+  const numctxEl = document.querySelector<HTMLInputElement>(`#${prefix}-numctx`);
+  if (topkEl)   topkEl.value   = String(p.topK   ?? AI_DEFAULTS.OLLAMA_TOP_K);
+  if (numctxEl) numctxEl.value = String(p.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX);
+}
+
+function readParamsFromUI(prefix: string): ModelParams {
+  const num = (id: string, fallback: number, int = false): number => {
+    const el = document.querySelector<HTMLInputElement>(`#${id}`);
+    if (!el) return fallback;
+    const v = int ? parseInt(el.value, 10) : parseFloat(el.value);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  return {
+    temperature:   num(`${prefix}-temp`,   AI_DEFAULTS.OLLAMA_TEMPERATURE),
+    topP:          num(`${prefix}-topp`,   AI_DEFAULTS.OLLAMA_TOP_P),
+    repeatPenalty: num(`${prefix}-rp`,     AI_DEFAULTS.OLLAMA_REPEAT_PENALTY),
+    topK:          num(`${prefix}-topk`,   AI_DEFAULTS.OLLAMA_TOP_K,   true),
+    numCtx:        num(`${prefix}-numctx`, AI_DEFAULTS.OLLAMA_NUM_CTX, true),
+  };
+}
+
 // ─── Apply / read settings ────────────────────────────────────────────────────
 
 function applySettingsToUI(settings: ReviewSettings): void {
@@ -198,14 +232,11 @@ function applySettingsToUI(settings: ReviewSettings): void {
   const ollamaModelEl = document.querySelector<HTMLInputElement>('#ollama-model-input');
   if (ollamaModelEl) ollamaModelEl.value = settings.ollamaModel ?? DEFAULT_SETTINGS.ollamaModel ?? '';
 
-  const p = settings.ollamaParams ?? {};
-  setSlider('ollama-temp', 'ollama-temp-val', p.temperature   ?? AI_DEFAULTS.OLLAMA_TEMPERATURE);
-  setSlider('ollama-topp', 'ollama-topp-val', p.topP          ?? AI_DEFAULTS.OLLAMA_TOP_P);
-  setSlider('ollama-rp',   'ollama-rp-val',   p.repeatPenalty ?? AI_DEFAULTS.OLLAMA_REPEAT_PENALTY);
-  const topkEl   = document.querySelector<HTMLInputElement>('#ollama-topk');
-  const numctxEl = document.querySelector<HTMLInputElement>('#ollama-numctx');
-  if (topkEl)   topkEl.value   = String(p.topK   ?? AI_DEFAULTS.OLLAMA_TOP_K);
-  if (numctxEl) numctxEl.value = String(p.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX);
+  applyParamsToUI('ollama', settings.ollamaParams);
+  applyParamsToUI('custom', settings.customParams);
+
+  const extraEl = document.querySelector<HTMLInputElement>('#custom-extra-params');
+  if (extraEl) extraEl.checked = settings.customSendExtraParams !== false;
 
   // ── Model selects / inputs (non-key) ────────────────────────────────────────
   const openaiModelEl = document.querySelector<HTMLSelectElement>('#openai-model-select');
@@ -243,11 +274,6 @@ function readSettingsFromUI(): ReviewSettings {
   const countInput     = document.querySelector<HTMLInputElement>('#review-count-input');
 
   const ollamaModelEl  = document.querySelector<HTMLInputElement>('#ollama-model-input');
-  const ollamaTempEl   = document.querySelector<HTMLInputElement>('#ollama-temp');
-  const ollamaToppEl   = document.querySelector<HTMLInputElement>('#ollama-topp');
-  const ollamaRpEl     = document.querySelector<HTMLInputElement>('#ollama-rp');
-  const ollamaTopkEl   = document.querySelector<HTMLInputElement>('#ollama-topk');
-  const ollamaNumctxEl = document.querySelector<HTMLInputElement>('#ollama-numctx');
 
   const openaiModelEl    = document.querySelector<HTMLSelectElement>('#openai-model-select');
   const anthropicModelEl = document.querySelector<HTMLInputElement>('#anthropic-model-input');
@@ -275,13 +301,7 @@ function readSettingsFromUI(): ReviewSettings {
 
     ollamaEndpoint: ollamaEndEl?.value.trim() || AI_DEFAULTS.OLLAMA_ENDPOINT,
     ollamaModel: ollamaModelEl?.value.trim() || DEFAULT_SETTINGS.ollamaModel,
-    ollamaParams: {
-      temperature:   ollamaTempEl   ? parseFloat(ollamaTempEl.value)     : AI_DEFAULTS.OLLAMA_TEMPERATURE,
-      topP:          ollamaToppEl   ? parseFloat(ollamaToppEl.value)     : AI_DEFAULTS.OLLAMA_TOP_P,
-      repeatPenalty: ollamaRpEl     ? parseFloat(ollamaRpEl.value)       : AI_DEFAULTS.OLLAMA_REPEAT_PENALTY,
-      topK:          ollamaTopkEl   ? parseInt(ollamaTopkEl.value, 10)   : AI_DEFAULTS.OLLAMA_TOP_K,
-      numCtx:        ollamaNumctxEl ? parseInt(ollamaNumctxEl.value, 10) : AI_DEFAULTS.OLLAMA_NUM_CTX,
-    },
+    ollamaParams: readParamsFromUI('ollama'),
 
     // API keys: blank = keep existing, explicit clear = remove
     openaiApiKey:    readKeyFromUI('openai-key-input',    'openai',    _loadedSettings.openaiApiKey),
@@ -302,6 +322,9 @@ function readSettingsFromUI(): ReviewSettings {
     customEndpoint:  customEndpointEl?.value.trim() || undefined,
     customApiKey:    readKeyFromUI('custom-key-input', 'custom', _loadedSettings.customApiKey),
     customModel:     customModelEl?.value.trim() || undefined,
+    customParams:    readParamsFromUI('custom'),
+    customSendExtraParams:
+      document.querySelector<HTMLInputElement>('#custom-extra-params')?.checked !== false,
   };
 }
 
@@ -340,11 +363,16 @@ function setTestStatus(provider: string, text: string, state: 'idle' | 'busy' | 
   el.className = `test-status${state === 'idle' ? '' : ` test-${state}`}`;
 }
 
-/** Fill the Ollama model datalist from the models the server actually has. */
-function renderOllamaModels(models: string[]): void {
-  const list = document.getElementById('ollama-model-list');
+/**
+ * Fill a provider's model datalist from the models its server actually reports.
+ * Works for any local server exposing /models — not just Ollama.
+ */
+function renderModelOptions(provider: string, models: string[]): void {
+  const list = document.getElementById(`${provider}-model-list`);
   if (!list) return;
-  list.innerHTML = models.map((m) => `<option value="${m}"></option>`).join('');
+  list.innerHTML = models
+    .map((m) => `<option value="${m.replace(/"/g, '&quot;')}"></option>`)
+    .join('');
 }
 
 /**
@@ -374,7 +402,8 @@ async function runConnectionTest(provider: string): Promise<void> {
 
   const { ok, message, models } = response.payload;
   setTestStatus(provider, message, ok ? 'ok' : 'fail');
-  if (ok && provider === 'ollama' && models?.length) renderOllamaModels(models);
+  // Both local providers expose a model list; populate whichever was tested.
+  if (ok && models?.length) renderModelOptions(provider, models);
 }
 
 /**
@@ -1149,12 +1178,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     await resetSettingsToDefaults();
   });
 
-  // Ollama sliders — live value labels
-  (['temp', 'topp', 'rp'] as const).forEach((param) => {
-    const slider = document.querySelector<HTMLInputElement>(`#ollama-${param}`);
-    const valEl  = document.getElementById(`ollama-${param}-val`);
-    slider?.addEventListener('input', () => { if (valEl) valEl.textContent = slider.value; });
+  // Live slider labels for BOTH local providers — same knobs, same code.
+  (['ollama', 'custom'] as const).forEach((prefix) => {
+    (['temp', 'topp', 'rp'] as const).forEach((param) => {
+      const slider = document.querySelector<HTMLInputElement>(`#${prefix}-${param}`);
+      const valEl  = document.getElementById(`${prefix}-${param}-val`);
+      slider?.addEventListener('input', () => { if (valEl) valEl.textContent = slider.value; });
+    });
   });
+
+  // Local-runtime presets — fill the endpoint so "use my own model" does not
+  // require knowing each project's default port.
+  const presetSelect = document.querySelector<HTMLSelectElement>('#custom-preset-select');
+  presetSelect?.addEventListener('change', () => {
+    const preset = LOCAL_PRESETS.find((x) => x.id === presetSelect.value);
+    if (!preset) return;
+    const endpointEl = document.querySelector<HTMLInputElement>('#custom-endpoint-input');
+    if (endpointEl) endpointEl.value = preset.endpoint;
+    setTestStatus('custom', `${preset.label} endpoint filled in — test it to load its models.`, 'idle');
+    presetSelect.value = ''; // back to the "choose a preset" placeholder
+  });
+
+  // Re-probe the custom server for its model list when the endpoint changes
+  document.querySelector<HTMLInputElement>('#custom-endpoint-input')
+    ?.addEventListener('change', () => { void runConnectionTest('custom'); });
 
   // API key clear buttons — mark key for removal on next save
   document.querySelectorAll<HTMLElement>('.clear-key-btn').forEach((btn) => {

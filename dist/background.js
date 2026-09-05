@@ -1,8 +1,16 @@
-import { SENTIMENTS } from './types.js';
+import { LOCAL_PROVIDERS, SENTIMENTS } from './types.js';
 import { AI_DEFAULTS, ANALYSIS_DEPTHS, PROMPT_BUDGET } from './config.js';
 /** Ollama base URL for this request — user-configurable, trailing slashes stripped. */
 function ollamaBase(settings) {
     return (settings.ollamaEndpoint || AI_DEFAULTS.OLLAMA_ENDPOINT).replace(/\/+$/, '');
+}
+/** True for providers running on the user's own machine or network. */
+function isLocalProvider(settings) {
+    return LOCAL_PROVIDERS.includes(settings.aiProvider ?? 'ollama');
+}
+/** Sampling parameters for whichever local provider is active. */
+function localParams(settings) {
+    return (settings.aiProvider === 'custom' ? settings.customParams : settings.ollamaParams) ?? {};
 }
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,15 +125,18 @@ function isComplaint(r) {
 /**
  * Characters of review text this request may spend.
  *
- * Starts from the depth preset, then — for Ollama only — clamps to what the
- * user's context window can actually hold. num_ctx is editable down to 512,
- * and nothing previously revalidated the budget against it, so a small context
- * window silently overflowed the prompt.
+ * Starts from the depth preset, then — for any LOCAL model — clamps to what the
+ * user's context window can actually hold. The context size is editable down to
+ * 512, and nothing previously revalidated the budget against it, so a small
+ * context window silently overflowed the prompt.
  */
 function resolveCharBudget(settings, depthChars) {
-    if ((settings.aiProvider ?? 'ollama') !== 'ollama')
+    // Applies to any locally-hosted model. Previously this returned early for
+    // everything except Ollama, so an LM Studio / llama.cpp user with a small
+    // context window hit exactly the prompt-overflow this clamp exists to stop.
+    if (!isLocalProvider(settings))
         return depthChars;
-    const numCtx = settings.ollamaParams?.numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX;
+    const numCtx = localParams(settings).numCtx ?? AI_DEFAULTS.OLLAMA_NUM_CTX;
     const promptTokens = numCtx - AI_DEFAULTS.MAX_OUTPUT_TOKENS;
     const fromCtx = promptTokens * PROMPT_BUDGET.CHARS_PER_TOKEN - PROMPT_BUDGET.STATIC_PROMPT_CHARS;
     // A tiny num_ctx can make this zero or negative — keep a floor so we always
@@ -309,21 +320,41 @@ async function fetchWithTimeout(url, init) {
         clearTimeout(timer);
     }
 }
-/** Shared OpenAI-compatible chat completion call. */
-async function callOpenAICompatible(label, url, apiKey, model, prompt) {
+function buildCompatBody(model, prompt, opts, withExtras) {
+    const p = opts.params ?? {};
+    const body = {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: p.temperature ?? AI_DEFAULTS.OPENAI_TEMPERATURE,
+        max_tokens: AI_DEFAULTS.MAX_OUTPUT_TOKENS,
+    };
+    if (p.topP !== undefined)
+        body.top_p = p.topP;
+    if (withExtras) {
+        if (p.topK !== undefined)
+            body.top_k = p.topK;
+        if (p.repeatPenalty !== undefined)
+            body.repetition_penalty = p.repeatPenalty;
+    }
+    return body;
+}
+async function callOpenAICompatible(label, url, apiKey, model, prompt, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey)
         headers['Authorization'] = `Bearer ${apiKey}`;
-    const response = await fetchWithTimeout(url, {
+    const wantExtras = opts.sendExtraParams === true;
+    const send = (withExtras) => fetchWithTimeout(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: AI_DEFAULTS.OPENAI_TEMPERATURE,
-            max_tokens: AI_DEFAULTS.MAX_OUTPUT_TOKENS,
-        }),
+        body: JSON.stringify(buildCompatBody(model, prompt, opts, withExtras)),
     });
+    let response = await send(wantExtras);
+    // A strict server rejects unknown fields with 400. Rather than surfacing a
+    // confusing error, drop the non-standard params and try once more.
+    if (!response.ok && response.status === 400 && wantExtras) {
+        console.warn(`[GReviewSumm] ${label} rejected top_k/repetition_penalty — retrying without them.`);
+        response = await send(false);
+    }
     if (!response.ok) {
         throw new Error(`${label} API error ${response.status}: ${await response.text()}`);
     }
@@ -346,7 +377,7 @@ async function checkOllama(settings) {
 }
 const callOllama = async (prompt, settings) => {
     const model = settings.ollamaModel ?? AI_DEFAULTS.OLLAMA_MODEL;
-    const p = settings.ollamaParams ?? {};
+    const p = localParams(settings);
     const options = { num_predict: AI_DEFAULTS.MAX_OUTPUT_TOKENS };
     if (p.temperature !== undefined)
         options.temperature = p.temperature;
@@ -441,7 +472,12 @@ const callCustom = async (prompt, settings) => {
     const baseUrl = settings.customEndpoint.replace(/\/+$/, '');
     const url = `${baseUrl}/chat/completions`;
     try {
-        return await callOpenAICompatible('Custom endpoint', url, settings.customApiKey, settings.customModel || 'local-model', prompt);
+        return await callOpenAICompatible('Custom endpoint', url, settings.customApiKey, settings.customModel || 'local-model', prompt, {
+            params: settings.customParams,
+            // Local servers generally accept these; the call falls back automatically
+            // if this particular one does not.
+            sendExtraParams: settings.customSendExtraParams !== false,
+        });
     }
     catch (err) {
         // A bare TypeError from fetch on a non-localhost host almost always means

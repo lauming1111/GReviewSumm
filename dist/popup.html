@@ -190,6 +190,28 @@
     details.settings-card[open] > .advanced-toggle { border-bottom: 1px solid var(--border); }
     .settings-card-body { padding: 14px; }
 
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      cursor: pointer;
+      margin-bottom: 0;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+      margin: 0;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
     /* ── Test connection ── */
     .test-row {
       display: flex;
@@ -369,12 +391,11 @@
       gap: 10px;
     }
 
+    /* Sentence case, matching every other field label. */
     .param-num-row label {
       flex: 1;
       font-size: 11px;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
       margin-bottom: 0;
     }
 
@@ -927,8 +948,8 @@
         </button>
         <!-- Custom spans full row -->
         <button class="scope-btn" data-value="custom">
-          <span class="scope-label">Custom</span>
-          <span class="scope-sub">OpenAI-compatible endpoint</span>
+          <span class="scope-label">Local server</span>
+          <span class="scope-sub">LM Studio · llama.cpp · Jan · vLLM · any OpenAI-compatible</span>
         </button>
       </div>
 
@@ -1102,16 +1123,35 @@
         </div>
       </div>
 
-      <!-- ── Custom OpenAI-compatible ── -->
+      <!-- ── Local / custom OpenAI-compatible server ── -->
       <div id="custom-config" hidden>
         <p class="provider-note">
-          Works with any OpenAI-compatible server — LM Studio, Jan, Kobold, llama.cpp server, etc.
-          Localhost endpoints require no extra setup.
+          Any OpenAI-compatible server running on your own machine or network.
+          Pick your runtime below to fill in its default address, then Test
+          connection to load its models. Localhost needs no extra permission.
         </p>
+
+        <label for="custom-preset-select">Runtime preset</label>
+        <select id="custom-preset-select">
+          <option value="">Choose a runtime…</option>
+          <option value="lmstudio">LM Studio — http://localhost:1234/v1</option>
+          <option value="llamacpp">llama.cpp server — http://localhost:8080/v1</option>
+          <option value="jan">Jan — http://localhost:1337/v1</option>
+          <option value="vllm">vLLM — http://localhost:8000/v1</option>
+          <option value="kobold">KoboldCpp — http://localhost:5001/v1</option>
+          <option value="textgen">text-generation-webui — http://localhost:5000/v1</option>
+          <option value="localai">LocalAI — http://localhost:8080/v1</option>
+          <option value="ollama">Ollama (OpenAI API) — http://localhost:11434/v1</option>
+        </select>
+
         <label for="custom-endpoint-input">Base URL</label>
         <input type="text" id="custom-endpoint-input" placeholder="http://localhost:1234/v1" />
+
         <label for="custom-model-input">Model name</label>
-        <input type="text" id="custom-model-input" placeholder="model identifier" />
+        <input type="text" id="custom-model-input" list="custom-model-list" placeholder="model identifier" />
+        <!-- Populated from the server's own /models listing -->
+        <datalist id="custom-model-list"></datalist>
+
         <div class="key-label-row">
           <label for="custom-key-input">API Key (optional)</label>
           <span class="key-status" id="custom-key-status"></span>
@@ -1120,10 +1160,61 @@
           <input type="password" id="custom-key-input" placeholder="Leave blank if not required" autocomplete="off" />
           <button class="clear-key-btn" id="custom-clear-key" data-provider="custom" hidden title="Remove saved key">✕</button>
         </div>
+
         <div class="test-row">
           <button class="test-conn-btn" data-provider="custom">Test connection</button>
           <span class="test-status" id="custom-test-status"></span>
         </div>
+
+        <details class="advanced-details">
+          <summary class="advanced-toggle">▸ Advanced model parameters</summary>
+          <div class="param-group">
+
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Temperature</span>
+                <span class="param-val" id="custom-temp-val">0.7</span>
+              </div>
+              <input type="range" id="custom-temp" min="0" max="2" step="0.05" value="0.7" />
+            </div>
+
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Top-P (nucleus sampling)</span>
+                <span class="param-val" id="custom-topp-val">0.9</span>
+              </div>
+              <input type="range" id="custom-topp" min="0" max="1" step="0.05" value="0.9" />
+            </div>
+
+            <div class="param-row">
+              <div class="param-label-row">
+                <span>Repeat penalty</span>
+                <span class="param-val" id="custom-rp-val">1.1</span>
+              </div>
+              <input type="range" id="custom-rp" min="0.9" max="1.5" step="0.05" value="1.1" />
+            </div>
+
+            <div class="param-num-row">
+              <label for="custom-topk">Top-K</label>
+              <input type="number" id="custom-topk" class="param-num" min="1" max="200" step="1" value="40" />
+            </div>
+
+            <div class="param-num-row">
+              <label for="custom-numctx">Context window (tokens)</label>
+              <input type="number" id="custom-numctx" class="param-num" min="512" max="131072" step="512" value="16384" />
+            </div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="custom-extra-params" checked />
+              <span>Send top-k and repeat penalty</span>
+            </label>
+            <p class="field-hint" style="margin:0;">
+              These are not part of the OpenAI schema. Most local servers accept
+              them; if yours rejects the request they are dropped automatically.
+            </p>
+
+          </div>
+        </details>
       </div>
     </section>
 

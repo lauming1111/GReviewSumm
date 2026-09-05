@@ -72,6 +72,11 @@ export const AI_DEFAULTS = {
     /** Default xAI (Grok) model */
     XAI_MODEL: 'grok-3-mini-latest',
     // ─── Ollama local model parameters ──────────────────────────────────────────
+    /**
+     * Sampling defaults for ANY locally-hosted model (Ollama or an
+     * OpenAI-compatible server). The OLLAMA_ prefix is kept for continuity with
+     * stored settings, but nothing here is Ollama-specific.
+     */
     /** Sampling temperature — lower = more focused, higher = more creative */
     OLLAMA_TEMPERATURE: 0.7,
     /** Top-K sampling — number of tokens to consider at each step */
@@ -83,6 +88,22 @@ export const AI_DEFAULTS = {
     /** Repeat penalty — discourages repetition (1.0 = off) */
     OLLAMA_REPEAT_PENALTY: 1.1,
 };
+// ─── Local server presets ────────────────────────────────────────────────────
+/**
+ * One-click endpoints for the common OpenAI-compatible local runtimes, so
+ * "run a model on my own machine" is not synonymous with "install Ollama".
+ * Ports are each project's documented default.
+ */
+export const LOCAL_PRESETS = [
+    { id: 'lmstudio', label: 'LM Studio', endpoint: 'http://localhost:1234/v1' },
+    { id: 'llamacpp', label: 'llama.cpp server', endpoint: 'http://localhost:8080/v1' },
+    { id: 'jan', label: 'Jan', endpoint: 'http://localhost:1337/v1' },
+    { id: 'vllm', label: 'vLLM', endpoint: 'http://localhost:8000/v1' },
+    { id: 'kobold', label: 'KoboldCpp', endpoint: 'http://localhost:5001/v1' },
+    { id: 'textgen', label: 'text-generation-webui', endpoint: 'http://localhost:5000/v1' },
+    { id: 'localai', label: 'LocalAI', endpoint: 'http://localhost:8080/v1' },
+    { id: 'ollama', label: 'Ollama (OpenAI API)', endpoint: 'http://localhost:11434/v1' },
+];
 // ─── Analysis depth ──────────────────────────────────────────────────────────
 /**
  * How much of the collected review set reaches the model.

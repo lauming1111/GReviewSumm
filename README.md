@@ -1,8 +1,9 @@
 # GReviewSumm – AI Review Summarizer
 
 A Chrome extension that instantly summarizes Google Maps reviews using AI.
-Supports local models via [Ollama](https://ollama.com) (no data leaves your machine)
-and cloud providers including OpenAI, Anthropic Claude, Google Gemini, Groq, and xAI Grok.
+Runs against **any local model** — Ollama, LM Studio, llama.cpp, Jan, vLLM and other
+OpenAI-compatible servers, so nothing leaves your machine — or against a cloud
+provider (OpenAI, Anthropic Claude, Google Gemini, Groq, xAI Grok) if you prefer.
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-green)
@@ -15,7 +16,8 @@ and cloud providers including OpenAI, Anthropic Claude, Google Gemini, Groq, and
 - **Instant place info** — opens to place name, rating, review count, address, and phone with no delay
 - **Auto-scroll** — automatically scrolls the reviews panel to collect up to 1,000 reviews (adjustable)
 - **AI summary** — returns pros, cons, top themes, overall sentiment, and frequently mentioned staff
-- **7 AI providers** — Ollama (local), OpenAI, Anthropic Claude, Google Gemini, Groq, xAI Grok, or any OpenAI-compatible custom endpoint
+- **Bring your own model** — Ollama or any OpenAI-compatible local server (LM Studio, llama.cpp, Jan, vLLM, KoboldCpp, LocalAI, text-generation-webui), with one-click endpoint presets, a model picker read from the server itself, and full sampling control
+- **Cloud providers too** — OpenAI, Anthropic Claude, Google Gemini, Groq, xAI Grok
 - **Encrypted key storage** — API keys are encrypted at rest with AES-GCM-256; never exposed in the DOM
 - **Cached results** — analysis is cached for 24 hours; history screen lets you browse and re-open past summaries
 - **Time-based filtering** — analyze all reviews, the most recent N, or reviews from the last 1/3/6/12 months
@@ -33,8 +35,10 @@ and cloud providers including OpenAI, Anthropic Claude, Google Gemini, Groq, and
 
 - Google Chrome (or any Chromium-based browser)
 - **One of the following AI backends:**
-  - [Ollama](https://ollama.com) running locally on port `11434` (free, private)
-  - An API key for OpenAI, Anthropic, Google Gemini, Groq, or xAI
+  - A local model server — [Ollama](https://ollama.com), [LM Studio](https://lmstudio.ai),
+    [llama.cpp](https://github.com/ggml-org/llama.cpp), [Jan](https://jan.ai),
+    [vLLM](https://docs.vllm.ai), KoboldCpp, LocalAI, or text-generation-webui (free, private)
+  - Or an API key for OpenAI, Anthropic, Google Gemini, Groq, or xAI
 
 ---
 
@@ -51,6 +55,11 @@ ollama pull llama3.2
 # Start the server (runs on port 11434 by default)
 ollama serve
 ```
+
+**Any other local server (LM Studio, llama.cpp, Jan, vLLM, …):** start it with its
+OpenAI-compatible API enabled, then in the extension pick **Local server**, choose your
+runtime from the preset list to fill in its address, and hit **Test connection** — the
+model list loads from the server itself.
 
 **Cloud provider:** obtain an API key from your chosen provider and add it in the extension settings after installation.
 
@@ -88,11 +97,12 @@ Click ⚙ in the top-right to configure:
 
 | Setting | Description |
 |---|---|
-| **AI Provider** | Ollama · OpenAI · Anthropic · Gemini · Groq · xAI Grok · Custom endpoint |
+| **AI Provider** | Ollama · Local server (LM Studio, llama.cpp, Jan, vLLM, …) · OpenAI · Anthropic · Gemini · Groq · xAI Grok |
+| **Runtime preset** | Fills in the default address for your local runtime |
 | **Model** | Provider-specific selector; the Ollama field autocompletes from your installed models |
 | **Test connection** | Validates the key or endpoint before running an analysis |
 | **Ollama endpoint** | Base URL of your Ollama server — change it to reach another port or machine |
-| **Ollama parameters** | Temperature, top-p, top-k, repeat penalty, context window |
+| **Model parameters** | Temperature, top-p, top-k, repeat penalty, context window — for Ollama *and* any local server |
 | **Review scope** | All (most relevant) · Recent (newest first) · Last 1/3/6/12 months |
 | **Maximum reviews** | How many reviews to collect (10–10,000, default 1000) |
 | **Analysis depth** | Quick / Balanced / Thorough — how many collected reviews reach the model |

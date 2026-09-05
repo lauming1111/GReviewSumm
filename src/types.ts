@@ -34,13 +34,22 @@ export interface SummaryResult {
   dateParseWarning?: string;
 }
 
-export interface OllamaParams {
+/**
+ * Sampling parameters for a locally-hosted model. Applies to Ollama and to any
+ * OpenAI-compatible local server (LM Studio, llama.cpp, Jan, vLLM, …) — these
+ * are not Ollama-specific concepts.
+ */
+export interface ModelParams {
   temperature?: number;   // 0.0–2.0
   topK?: number;          // 1–200
   topP?: number;          // 0.0–1.0
   numCtx?: number;        // context window tokens
   repeatPenalty?: number; // 0.0–2.0
 }
+
+/** Providers that run on the user's own machine or network. */
+export const LOCAL_PROVIDERS = ['ollama', 'custom'] as const;
+export type LocalProvider = typeof LOCAL_PROVIDERS[number];
 
 export interface ReviewSettings {
   reviewMode: 'recent' | 'all' | '1m' | '3m' | '6m' | '1y';
@@ -54,7 +63,7 @@ export interface ReviewSettings {
   /** Base URL of the Ollama server. Defaults to AI_DEFAULTS.OLLAMA_ENDPOINT. */
   ollamaEndpoint?: string;
   ollamaModel?: string;
-  ollamaParams?: OllamaParams;
+  ollamaParams?: ModelParams;
   // OpenAI
   openaiApiKey?: string;
   openaiModel?: string;
@@ -70,10 +79,18 @@ export interface ReviewSettings {
   // xAI (Grok)
   xaiApiKey?: string;
   xaiModel?: string;
-  // Custom OpenAI-compatible endpoint
+  // Custom OpenAI-compatible endpoint (LM Studio, llama.cpp, Jan, vLLM, …)
   customEndpoint?: string;
   customApiKey?: string;
   customModel?: string;
+  /** Same sampling controls as Ollama — a local server is a local server. */
+  customParams?: ModelParams;
+  /**
+   * Whether to send non-standard sampling fields (top_k, repeat_penalty) to the
+   * custom endpoint. Most local servers accept them; strict ones reject the
+   * request outright, so this can be turned off.
+   */
+  customSendExtraParams?: boolean;
 }
 
 /**

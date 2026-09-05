@@ -10,6 +10,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Any local AI runtime is now a first-class provider, not just Ollama.** The "Local server" provider gained the same sampling controls Ollama had (temperature, top-p, top-k, repeat penalty, context window), a model picker fed by its own `/models` listing, and one-click presets for LM Studio, llama.cpp server, Jan, vLLM, KoboldCpp, text-generation-webui, LocalAI, and Ollama's OpenAI-compatible API. Previously "use a local model" effectively meant "install Ollama": the custom endpoint could not be tuned at all and its temperature was pinned to the cloud default
 - **Ollama server endpoint is configurable** — a remote or non-default-port Ollama was previously unreachable (the base URL was a module constant), and the Custom provider was not a workaround since it speaks `/chat/completions` and discards every Ollama sampling parameter
 - **Ollama model picker** — the model field now autocompletes from the server's own installed models; `/api/tags` was already being called for the health check and its response body thrown away
 - **Test connection** button per provider — validates the key or endpoint against the provider's free model-list endpoint, so a bad key surfaces immediately instead of after a 60-second scrape
@@ -24,6 +25,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - `optional_host_permissions` plus a save-time permission request, so custom OpenAI-compatible endpoints on non-localhost hosts work
 
 ### Fixed
+- **The prompt-overflow clamp only protected Ollama.** `resolveCharBudget` returned early for every other provider, so a local OpenAI-compatible server with a small context window got the full depth budget and overflowed — the exact bug the clamp exists to prevent. It now applies to every locally-hosted model, using that provider's own context setting. Measured: a local server at 4096 tokens now gets ~5,700 characters instead of 96,000
+- **Sampling parameters are no longer sent to hosted APIs.** `top_k` and `repetition_penalty` are not part of the OpenAI schema; they are sent only to local servers, and if a strict server rejects them the request is retried once without them rather than surfacing a 400
 - **Accessibility: 6 of 20 text/background combinations failed WCAG AA.** The worst were affordances users must find — the API-key revoke button measured **1.85:1** and the sub-label under every provider and scope button **2.83:1**. Every failure came from `opacity` stacked on muted text, or from `--accent` used as text at 3.82:1. `--text-muted` is now `#9a9ac0`, accent-as-text uses a new `--accent-text` token, and the opacity reductions are gone. All 31 combinations now pass, verified by script
 - **Keyboard focus was invisible** — `.scope-btn`, `.history-delete`, and every input, select, and slider set `outline: none` with no replacement. A single `:focus-visible` ring now applies throughout
 - **`All` and `Recent` scopes were identical.** `Recent` now sorts Google Maps by newest before scraping, so it really means the newest N rather than the first N in relevance order. The review cache key includes the sort order, since a relevance-ordered set is not interchangeable with a newest-first one
