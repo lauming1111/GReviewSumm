@@ -467,7 +467,10 @@
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      /* Darker than --accent deliberately: white on the original
+         var(--accent) -> #8b5cf6 gradient measured 4.23-4.32:1, below AA.
+         This range measures 5.18-5.63:1 at every stop. */
+      background: linear-gradient(135deg, #5b52e0, #7c4fe0);
       color: white;
       box-shadow: 0 4px 15px var(--accent-glow);
     }
@@ -870,7 +873,12 @@
 <body>
 
   <div class="header">
-    <div class="logo">🔍</div>
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 128 128" width="20" height="20">
+        <path fill="#fff" d="M30 20h68a16 16 0 0 1 16 16v38a16 16 0 0 1-16 16H62l-24 21V90h-8a16 16 0 0 1-16-16V36a16 16 0 0 1 16-16z"/>
+        <path fill="#6c63ff" d="M64.00 28.00 L70.76 45.70 L89.68 46.66 L74.94 58.55 L79.87 76.84 L64.00 66.50 L48.13 76.84 L53.06 58.55 L38.32 46.66 L57.24 45.70 Z"/>
+      </svg>
+    </div>
     <div class="header-text">
       <h1>GReviewSumm</h1>
       <p>AI-powered review analysis</p>

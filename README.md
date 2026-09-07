@@ -27,7 +27,14 @@ provider (OpenAI, Anthropic Claude, Google Gemini, Groq, xAI Grok) if you prefer
 
 ## Screenshots
 
-> Add screenshots here once the extension is published.
+<img src="store-assets/screenshot-1-summary.png" width="420" alt="Summary showing pros, cons and themes" />
+<img src="store-assets/screenshot-3-local-model.png" width="420" alt="Local server setup with runtime presets" />
+
+## Website
+
+Landing page, setup guide, privacy policy and changelog live in [`docs/`](./docs)
+and are published with GitHub Pages:
+**<https://lauming1111.github.io/GReviewSumm/>**
 
 ---
 

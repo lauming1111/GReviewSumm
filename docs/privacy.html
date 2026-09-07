@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — GReviewSumm</title>
+<meta name="description" content="What GReviewSumm reads, where it goes, and what is never collected." />
+<link rel="icon" href="assets/icon.png" />
+<link rel="stylesheet" href="site.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="" /><span>GReviewSumm</span></a>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="support.html">Setup &amp; FAQ</a>
+      <a href="privacy.html" aria-current="page">Privacy</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/lauming1111/GReviewSumm">Source</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+<article class="prose" style="padding:44px 0">
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated 7 September 2026 · Applies to the GReviewSumm Chrome extension, version 1.3.0.</p>
+
+  <div class="callout good" style="margin-top:26px">
+    <p><strong>The short version.</strong> There is no GReviewSumm server. Nothing is
+    sent to us, because there is nowhere to send it. Review text goes only to the
+    AI provider you choose — and if you choose a model running on your own
+    computer, it never leaves your machine at all.</p>
+  </div>
+
+  <h2>Who is responsible</h2>
+  <p>
+    GReviewSumm is built and maintained by an individual developer, minglau0315.
+    Questions about this policy: <a href="mailto:minglau0315@gmail.com">minglau0315@gmail.com</a>.
+  </p>
+
+  <h2>What the extension reads</h2>
+  <p>Only when you click <strong>Analyze Reviews</strong>, and only from the tab you are on:</p>
+  <ul>
+    <li>The text and star rating of the reviews shown on the page</li>
+    <li>The place name, its overall rating and review count</li>
+    <li>The category, address and phone number shown in the panel</li>
+  </ul>
+  <p>
+    It reads nothing until you ask it to. It does not run on other sites, does not
+    read your browsing history, your other tabs, your bookmarks or your cookies.
+  </p>
+
+  <h2>Where that data goes</h2>
+  <p>
+    To exactly one place: the AI provider you selected in settings. Nowhere else.
+    Which provider you pick decides whether anything leaves your computer.
+  </p>
+
+  <table>
+    <thead><tr><th>Your choice</th><th>Where review text goes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>A local model</strong> — Ollama, LM Studio, llama.cpp, Jan, vLLM, KoboldCpp, LocalAI, text-generation-webui, or any OpenAI-compatible server you run</td>
+        <td>To that server only. If it runs on your own machine or your own network, the review text <strong>never leaves it</strong>.</td>
+      </tr>
+      <tr>
+        <td><strong>A hosted API</strong> — OpenAI, Anthropic, Google Gemini, Groq, xAI</td>
+        <td>To that company's API, over HTTPS, so it can generate the summary. Their own privacy policy then governs what they do with it.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    If you use a hosted provider, their terms apply to the text sent:
+    <a href="https://openai.com/policies/privacy-policy/">OpenAI</a>,
+    <a href="https://www.anthropic.com/legal/privacy">Anthropic</a>,
+    <a href="https://policies.google.com/privacy">Google</a>,
+    <a href="https://groq.com/privacy-policy/">Groq</a>,
+    <a href="https://x.ai/legal/privacy-policy">xAI</a>.
+    Choosing a local model avoids this entirely.
+  </p>
+
+  <h2>What is stored, and where</h2>
+  <p>
+    Everything is kept in Chrome's local extension storage on your own device.
+    None of it is synced to us or to anyone else.
+  </p>
+  <table>
+    <thead><tr><th>Stored</th><th>Why</th><th>Kept for</th></tr></thead>
+    <tbody>
+      <tr><td>Your settings</td><td>Provider, model, endpoint, review scope, language</td><td>Until you change or reset them</td></tr>
+      <tr><td>API keys</td><td>To authenticate with the provider you chose</td><td>Until you remove them</td></tr>
+      <tr><td>Summaries and collected reviews</td><td>So reopening a place is instant instead of re-scraping</td><td>24 hours, max 50 entries</td></tr>
+      <tr><td>A random encryption salt</td><td>Used to encrypt your API keys</td><td>Until the extension is removed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>About API keys specifically</h3>
+  <p>
+    Keys are encrypted with <strong>AES-GCM-256</strong> before being written to
+    storage, using a key derived through PBKDF2-SHA-256 (100,000 iterations) from
+    a per-install value and a random salt. Once saved, a key is never displayed
+    back to you — the field shows a <em>✓ Saved</em> badge instead. A key is only
+    ever transmitted as the authorization header to the provider it belongs to.
+  </p>
+  <div class="callout warn">
+    <p><strong>An honest limit.</strong> This is meaningfully better than plain
+    text, but it is not an OS keychain. Anyone with full access to your computer
+    and to the extension's source could reconstruct the key. That is true of every
+    browser extension that stores a credential; treat your device as the boundary.</p>
+  </div>
+
+  <h2>What is never collected</h2>
+  <ul>
+    <li>No analytics, no telemetry, no usage statistics</li>
+    <li>No tracking, no advertising, no fingerprinting, no cookies</li>
+    <li>No accounts, no sign-in, no email collection</li>
+    <li>No crash or error reporting sent anywhere</li>
+    <li>No selling or sharing of data — there is no data of yours in our hands to sell</li>
+  </ul>
+  <p>
+    The extension's own interface makes <strong>no third-party requests at all</strong>.
+    Its fonts are bundled rather than loaded from a font CDN, specifically so that
+    opening the popup contacts nobody.
+  </p>
+
+  <h2>Permissions, and why each exists</h2>
+  <table>
+    <thead><tr><th>Permission</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>activeTab</code>, <code>scripting</code></td><td>To read the reviews on the tab you are looking at, only after you click Analyze</td></tr>
+      <tr><td><code>storage</code></td><td>Your settings and the local cache</td></tr>
+      <tr><td><code>google.com</code>, <code>maps.google.com</code></td><td>The pages whose reviews are being summarized</td></tr>
+      <tr><td><code>localhost</code>, <code>127.0.0.1</code></td><td>To reach a model running on your own machine</td></tr>
+      <tr><td>The five provider API hosts</td><td>Only the one you actually select is ever contacted</td></tr>
+      <tr><td>Optional: all hosts</td><td>Requested <strong>only</strong> if you point the extension at a self-hosted server on some other address. The extension cannot know that address in advance, so the option must be broad — but nothing is requested at install, and when you do save such an endpoint it asks for that single address only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Your control</h2>
+  <ul>
+    <li>Remove a stored API key with the <strong>✕</strong> beside its field</li>
+    <li>Clear every cached summary and review set from <strong>History → Clear all</strong></li>
+    <li><strong>Reset to defaults</strong> in Advanced settings restores everything (your keys are deliberately kept, since they cannot be shown back to you)</li>
+    <li>Uninstalling the extension deletes all of it — there is no copy anywhere else</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>GReviewSumm is not directed at children and collects no personal information from anyone.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If this policy changes, the date at the top changes with it and the change is
+    noted in the <a href="changelog.html">changelog</a>. The extension's full source
+    is <a href="https://github.com/lauming1111/GReviewSumm">available to read</a>, so
+    every claim here can be checked against the code.
+  </p>
+
+  <h2>Contact</h2>
+  <p><a href="mailto:minglau0315@gmail.com">minglau0315@gmail.com</a></p>
+
+</article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <p>© 2026 minglau0315 · Source available, not open source — see the <a href="https://github.com/lauming1111/GReviewSumm/blob/main/LICENSE">licence</a>.</p>
+    <nav class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="support.html">Support</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/lauming1111/GReviewSumm">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

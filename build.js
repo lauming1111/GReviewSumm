@@ -41,18 +41,17 @@ filesToClean.forEach(file => {
 
 // Copy everything from dist to the extension folder
 const extensionDir = path.join(__dirname, '..', 'review-lens-extension');
-if (fs.existsSync(extensionDir)) {
+// Create it rather than skipping: on a fresh clone this directory does not
+// exist, so the copy was silently skipped and `Load unpacked` had nothing to
+// point at — even though the README tells you to select exactly this folder.
+if (!fs.existsSync(extensionDir)) fs.mkdirSync(extensionDir, { recursive: true });
+{
   fs.readdirSync(distDir).forEach(file => {
     const src = path.join(distDir, file);
     const dest = path.join(extensionDir, file);
-    if (fs.statSync(src).isDirectory()) {
-      if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-      fs.readdirSync(src).forEach(subfile => {
-        fs.copyFileSync(path.join(src, subfile), path.join(dest, subfile));
-      });
-    } else {
-      fs.copyFileSync(src, dest);
-    }
+    // cpSync recurses; the previous hand-rolled copy only handled one level of
+    // nesting and threw ENOTSUP on any directory inside a directory.
+    fs.cpSync(src, dest, { recursive: true });
   });
   console.log('Copied files to review-lens-extension/');
 }

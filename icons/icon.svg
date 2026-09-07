@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>GReviewSumm</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c63ff"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c63ff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" fill="url(#tile)"/>
+  <path fill="#fff" d="M30 20h68a16 16 0 0 1 16 16v38a16 16 0 0 1-16 16H62l-24 21V90h-8a16 16 0 0 1-16-16V36a16 16 0 0 1 16-16z"/>
+  <path fill="url(#star)" d="M64.00 28.00 L70.76 45.70 L89.68 46.66 L74.94 58.55 L79.87 76.84 L64.00 66.50 L48.13 76.84 L53.06 58.55 L38.32 46.66 L57.24 45.70 Z"/>
+</svg>

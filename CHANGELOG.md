@@ -9,6 +9,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0] — 2026-09-07
+
 ### Added
 - **Any local AI runtime is now a first-class provider, not just Ollama.** The "Local server" provider gained the same sampling controls Ollama had (temperature, top-p, top-k, repeat penalty, context window), a model picker fed by its own `/models` listing, and one-click presets for LM Studio, llama.cpp server, Jan, vLLM, KoboldCpp, text-generation-webui, LocalAI, and Ollama's OpenAI-compatible API. Previously "use a local model" effectively meant "install Ollama": the custom endpoint could not be tuned at all and its temperature was pinned to the cloud default
 - **Ollama server endpoint is configurable** — a remote or non-default-port Ollama was previously unreachable (the base URL was a module constant), and the Custom provider was not a workaround since it speaks `/chat/completions` and discards every Ollama sampling parameter
